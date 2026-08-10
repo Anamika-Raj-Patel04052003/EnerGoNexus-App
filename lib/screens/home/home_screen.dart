@@ -2,20 +2,34 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../widgets/animated_ev_background.dart';
+
+import '../../widgets/home/premium_header.dart';
+import '../../widgets/home/ride_search_card.dart';
+import '../../widgets/home/service_grid.dart';
+import '../../widgets/home/wallet_summary_card.dart';
+import '../../widgets/home/active_trip_card.dart';
+import '../../widgets/home/charging_station_card.dart';
+import '../../widgets/home/ai_suggestion_card.dart';
+
+import '../../widgets/section_title.dart';
+
 import '../../services/api_service.dart';
+
+import '../ride/booking_screen.dart';
+import '../wallet/wallet_screen.dart';
 
 
 
 class HomeScreen extends StatefulWidget {
 
-
-  const HomeScreen({super.key});
-
+  const HomeScreen({
+    super.key,
+  });
 
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
-
+  State<HomeScreen> createState() =>
+      _HomeScreenState();
 
 }
 
@@ -26,13 +40,16 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
 
 
-  String userName = "User";
+  String userName = "EnerGo User";
 
-  String email = "";
 
   double walletBalance = 0;
 
-  String activeRide = "No Active Ride";
+
+  String rideStatus =
+      "No active ride";
+
+
 
   bool loading = true;
 
@@ -42,12 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState(){
 
-
     super.initState();
 
-
-    loadUser();
-
+    loadHomeData();
 
   }
 
@@ -55,61 +69,50 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-
-
-  Future<void> loadUser() async {
+  Future<void> loadHomeData() async {
 
 
     try{
 
 
-      var response = await ApiService.getProfile();
+      var profile =
+      await ApiService.getProfile();
 
 
 
-
-      if(response["user"] != null){
-
+      if(profile["user"] != null){
 
 
-        setState((){
-
-
-          userName =
-
-          response["user"]["full_name"] ?? "User";
-
-
-
-          email =
-
-          response["user"]["email"] ?? "";
-
-
-
-          loading = false;
-
-
-
-        });
-
+        userName =
+        profile["user"]["full_name"] ??
+            "EnerGo User";
 
 
       }
 
-      else{
 
 
-        setState((){
+      /*
+      Wallet API integration later:
+
+      var wallet =
+      await ApiService.getWallet();
 
 
-          loading = false;
+      walletBalance =
+      wallet["balance"];
+
+      */
 
 
-        });
+
+      setState((){
 
 
-      }
+        loading = false;
+
+
+      });
 
 
 
@@ -127,6 +130,10 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
 
+      debugPrint(
+          e.toString()
+      );
+
 
     }
 
@@ -138,15 +145,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-
-
-
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
 
 
 
     return Scaffold(
+
 
 
       body:
@@ -166,42 +171,24 @@ class _HomeScreenState extends State<HomeScreen> {
           child:
 
 
-
           loading
 
-
-
-          ?
-
+              ?
 
           const Center(
 
-
-
             child:
-
 
             CircularProgressIndicator(
 
-
-
               color:
-
               AppColors.primaryGreen,
-
-
 
             ),
 
-
-
           )
 
-
-
-          :
-
-
+              :
 
           SingleChildScrollView(
 
@@ -213,8 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-            child:
 
+            child:
 
 
             Column(
@@ -227,193 +214,67 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-              children:[
-
+              children: [
 
 
 
                 // HEADER
 
 
+                PremiumHeader(
 
-                Row(
 
+                  name:userName,
 
 
-                  mainAxisAlignment:
+                  location:
+                  "Bengaluru, India",
 
-                  MainAxisAlignment.spaceBetween,
 
+                ),
 
 
-                  children:[
 
 
+                const SizedBox(height:28),
 
-                    Column(
 
 
 
-                      crossAxisAlignment:
 
-                      CrossAxisAlignment.start,
 
+                // RIDE SEARCH
 
 
-                      children:[
+                RideSearchCard(
 
 
 
-                        Text(
+                  onTap:(){
 
 
 
-                          "Hello $userName 👋",
+                    Navigator.push(
 
 
+                      context,
 
-                          style:
 
-                          const TextStyle(
+                      MaterialPageRoute(
 
 
+                        builder:(context)=>
 
-                            color:
-
-                            Colors.white70,
-
-
-
-                            fontSize:16,
-
-
-
-                          ),
-
-
-
-                        ),
-
-
-
-
-
-                        const SizedBox(height:5),
-
-
-
-
-
-
-                        const Text(
-
-
-
-                          "Welcome to EnerGo",
-
-
-
-                          style:
-
-                          TextStyle(
-
-
-
-                            color:
-
-                            Colors.white,
-
-
-
-                            fontSize:26,
-
-
-
-                            fontWeight:
-
-                            FontWeight.bold,
-
-
-
-                          ),
-
-
-
-                        ),
-
-
-
-                      ],
-
-
-
-                    ),
-
-
-
-
-
-                    Container(
-
-
-
-                      padding:
-
-                      const EdgeInsets.all(12),
-
-
-
-                      decoration:
-
-                      BoxDecoration(
-
-
-
-                        color:
-
-                        AppColors.primaryGreen
-
-                        .withOpacity(0.15),
-
-
-
-                        shape:
-
-                        BoxShape.circle,
-
+                        const BookingScreen(),
 
 
                       ),
 
 
-
-                      child:
-
-
-                      const Icon(
+                    );
 
 
-
-                        Icons.notifications,
-
-
-
-                        color:
-
-                        AppColors.primaryGreen,
-
-
-
-                      ),
-
-
-
-                    )
-
-
-
-                  ],
-
+                  },
 
 
                 ),
@@ -430,218 +291,65 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-                // SMART EV BANNER
+                const SectionTitle(
 
+                  title:
+                  "Quick Services",
 
+                ),
 
-                Container(
 
 
 
-                  padding:
+                const SizedBox(height:15),
 
-                  const EdgeInsets.all(20),
 
 
 
-                  decoration:
+                ServiceGrid(
 
-                  BoxDecoration(
 
 
+                  onRideTap:(){
 
-                    gradient:
 
-                    LinearGradient(
+                    Navigator.push(
 
+                      context,
 
+                      MaterialPageRoute(
 
-                      colors:[
+                        builder:(context)=>
 
-
-
-                        AppColors.primaryGreen
-
-                        .withOpacity(0.25),
-
-
-
-                        Colors.black26,
-
-
-
-                      ],
-
-
-
-                    ),
-
-
-
-                    borderRadius:
-
-                    BorderRadius.circular(25),
-
-
-
-                  ),
-
-
-
-
-                  child:
-
-
-
-                  Row(
-
-
-
-                    children:[
-
-
-
-                      Expanded(
-
-
-
-                        child:
-
-
-
-                        Column(
-
-
-
-                          crossAxisAlignment:
-
-                          CrossAxisAlignment.start,
-
-
-
-                          children:[
-
-
-
-                            const Text(
-
-
-
-                              "Smart EV Mobility",
-
-
-
-                              style:
-
-                              TextStyle(
-
-
-
-                                color:
-
-                                Colors.white,
-
-
-
-                                fontSize:20,
-
-
-
-                                fontWeight:
-
-                                FontWeight.bold,
-
-
-
-                              ),
-
-
-
-                            ),
-
-
-
-
-                            const SizedBox(height:8),
-
-
-
-
-
-                            const Text(
-
-
-
-                              "Ride greener,\ntravel smarter",
-
-
-
-                              style:
-
-                              TextStyle(
-
-
-
-                                color:
-
-                                Colors.white70,
-
-
-
-                                fontSize:14,
-
-
-
-                              ),
-
-
-
-                            ),
-
-
-
-                          ],
-
-
-
-                        ),
-
-
+                        const BookingScreen(),
 
                       ),
 
+                    );
+
+
+                  },
 
 
 
-
-                      const Icon(
-
+                  onChargingTap:(){
 
 
-                        Icons.electric_car,
+                  },
 
 
 
-                        size:70,
+                  onParcelTap:(){
+
+
+                  },
 
 
 
-                        color:
-
-                        AppColors.primaryGreen,
+                  onFacilityTap:(){
 
 
-
-                      )
-
-
-
-                    ],
-
-
-
-                  ),
-
+                  },
 
 
                 ),
@@ -651,211 +359,147 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-                const SizedBox(height:25),
+                const SizedBox(height:30),
 
 
 
 
 
-                // WALLET CARD
 
+                const SectionTitle(
 
+                  title:
+                  "Wallet",
 
-                Container(
+                ),
 
 
 
-                  padding:
 
-                  const EdgeInsets.all(20),
+                const SizedBox(height:15),
 
 
 
-                  decoration:
 
-                  BoxDecoration(
 
+                WalletSummaryCard(
 
 
-                    color:
 
-                    Colors.white.withOpacity(0.08),
+                  balance:
 
+                  walletBalance,
 
 
-                    borderRadius:
 
-                    BorderRadius.circular(20),
+                  onAddMoney:(){
 
 
+                    Navigator.push(
 
-                    border:
+                      context,
 
-                    Border.all(
+                      MaterialPageRoute(
 
+                        builder:(context)=>
 
-
-                      color:
-
-                      AppColors.primaryGreen
-
-                      .withOpacity(0.3),
-
-
-
-                    ),
-
-
-
-                  ),
-
-
-
-
-                  child:
-
-
-
-                  Row(
-
-
-
-                    mainAxisAlignment:
-
-                    MainAxisAlignment.spaceBetween,
-
-
-
-                    children:[
-
-
-
-                      Column(
-
-
-
-                        crossAxisAlignment:
-
-                        CrossAxisAlignment.start,
-
-
-
-                        children:[
-
-
-
-                          const Text(
-
-
-
-                            "Wallet Balance",
-
-
-
-                            style:
-
-                            TextStyle(
-
-
-
-                              color:
-
-                              Colors.white70,
-
-
-
-                            ),
-
-
-
-                          ),
-
-
-
-
-
-                          const SizedBox(height:8),
-
-
-
-
-
-                          Text(
-
-
-
-                            "₹ ${walletBalance.toStringAsFixed(0)}",
-
-
-
-                            style:
-
-                            const TextStyle(
-
-
-
-                              color:
-
-                              Colors.white,
-
-
-
-                              fontSize:24,
-
-
-
-                              fontWeight:
-
-                              FontWeight.bold,
-
-
-
-                            ),
-
-
-
-                          ),
-
-
-
-                        ],
-
-
+                        const WalletScreen(),
 
                       ),
 
+                    );
+
+
+                  },
+
+
+
+                  onHistory:(){
+
+
+                  },
+
+
+                ),
 
 
 
 
-                      const Icon(
+
+
+                const SizedBox(height:30),
 
 
 
-                        Icons.account_balance_wallet,
 
 
 
-                        color:
+                const SectionTitle(
 
-                        AppColors.primaryGreen,
+                  title:
+                  "Current Ride",
 
-
-
-                        size:35,
-
-
-
-                      )
+                ),
 
 
 
-                    ],
 
 
 
-                  ),
+                const SizedBox(height:15),
 
+
+
+
+
+
+                ActiveTripCard(
+
+
+
+                  status:
+
+                  rideStatus,
+
+
+
+                  driverName:
+
+                  "No Driver Assigned",
+
+
+
+                  eta:
+
+                  "--",
+
+
+
+                  onTrackRide:(){
+
+
+                  },
+
+
+                ),
+
+
+
+
+
+
+                const SizedBox(height:30),
+
+
+
+
+
+
+                const SectionTitle(
+
+                  title:
+
+                  "Nearby EV Stations",
 
 
                 ),
@@ -869,180 +513,50 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-                // ACTIVE RIDE CARD
 
+                ChargingStationCard(
 
 
-                Container(
 
+                  stationName:
 
+                  "EnerGo Fast Charging Hub",
 
-                  padding:
 
-                  const EdgeInsets.all(20),
 
+                  distance:
 
+                  "2.5 km away",
 
-                  decoration:
 
-                  BoxDecoration(
 
+                  ports:
 
+                  "4 Ports Available",
 
-                    color:
 
-                    Colors.white.withOpacity(0.08),
 
+                  chargingType:
 
+                  "Fast Charging",
 
-                    borderRadius:
 
-                    BorderRadius.circular(20),
 
+                  price:
 
+                  "₹12/unit",
 
-                  ),
 
+                  onTap:(){
 
 
 
-                  child:
-
-
-
-                  Row(
-
-
-
-                    children:[
-
-
-
-                      const Icon(
-
-
-
-                        Icons.electric_car,
-
-
-
-                        color:
-
-                        AppColors.primaryGreen,
-
-
-
-                        size:35,
-
-
-
-                      ),
-
-
-
-
-
-                      const SizedBox(width:15),
-
-
-
-
-
-                      Column(
-
-
-
-                        crossAxisAlignment:
-
-                        CrossAxisAlignment.start,
-
-
-
-                        children:[
-
-
-
-                          const Text(
-
-
-
-                            "Active Ride",
-
-
-
-                            style:
-
-                            TextStyle(
-
-
-
-                              color:
-
-                              Colors.white70,
-
-
-
-                            ),
-
-
-
-                          ),
-
-
-
-
-
-                          Text(
-
-
-
-                            activeRide,
-
-
-
-                            style:
-
-                            const TextStyle(
-
-
-
-                              color:
-
-                              Colors.white,
-
-
-
-                              fontWeight:
-
-                              FontWeight.bold,
-
-
-
-                            ),
-
-
-
-                          ),
-
-
-
-                        ],
-
-
-
-                      )
-
-
-
-                    ],
-
-
-
-                  ),
-
+                  },
 
 
                 ),
+
+
 
 
 
@@ -1054,154 +568,53 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-                const Text(
 
+                const SectionTitle(
 
+                  title:
 
-                  "Services",
-
-
-
-                  style:
-
-                  TextStyle(
-
-
-
-                    color:
-
-                    Colors.white,
-
-
-
-                    fontSize:22,
-
-
-
-                    fontWeight:
-
-                    FontWeight.bold,
-
-
-
-                  ),
-
+                  "AI Smart Assistant",
 
 
                 ),
 
 
-       const SizedBox(height:15),
 
 
 
 
+                const SizedBox(height:15),
 
-GridView.count(
 
 
 
-  shrinkWrap:true,
 
 
+                AISuggestionCard(
 
-  physics:
 
-  const NeverScrollableScrollPhysics(),
 
+                  onTap:(){
 
 
-  crossAxisCount:2,
+                  },
 
 
+                ),
 
-  crossAxisSpacing:15,
 
 
 
-  mainAxisSpacing:15,
 
 
-
-  children:[
-
-
-
-
-    serviceCard(
-
-
-      "Book Ride",
-
-
-      Icons.directions_car,
-
-
-    ),
-
-
-
-
-
-    serviceCard(
-
-
-      "Charging",
-
-
-      Icons.ev_station,
-
-
-    ),
-
-
-
-
-
-    serviceCard(
-
-
-      "Rental",
-
-
-      Icons.car_rental,
-
-
-    ),
-
-
-
-
-
-    serviceCard(
-
-
-      "Parcel",
-
-
-      Icons.local_shipping,
-
-
-    ),
-
-
-
-  ],
-
-
-
-),
-
-
+                const SizedBox(height:30),
 
 
 
               ],
 
 
-
             ),
-
 
 
           ),
@@ -1215,178 +628,10 @@ GridView.count(
       ),
 
 
-
     );
-
 
 
   }
 
 
-
-
-
-
-
-
-  // SERVICE CARD WIDGET
-
-
-
-
-
-  Widget serviceCard(
-
-
-
-      String title,
-
-
-
-      IconData icon
-
-
-
-      ){
-
-
-
-
-
-    return Container(
-
-
-
-
-      decoration:
-
-      BoxDecoration(
-
-
-
-        color:
-
-        Colors.white.withOpacity(0.08),
-
-
-
-        borderRadius:
-
-        BorderRadius.circular(20),
-
-
-
-        border:
-
-        Border.all(
-
-
-
-          color:
-
-          AppColors.primaryGreen
-
-          .withOpacity(0.25),
-
-
-
-        ),
-
-
-
-      ),
-
-
-
-
-
-
-      child:
-
-
-
-      Column(
-
-
-
-        mainAxisAlignment:
-
-        MainAxisAlignment.center,
-
-
-
-        children:[
-
-
-
-
-
-          Icon(
-
-
-
-            icon,
-
-
-
-            size:40,
-
-
-
-            color:
-
-            AppColors.primaryGreen,
-
-
-
-          ),
-
-          const SizedBox(height:10),
-
-          Text(
-
-            title,
-
-            style:
-
-            const TextStyle(
-
-
-
-              color:
-
-              Colors.white,
-
-
-
-              fontWeight:
-
-              FontWeight.bold,
-
-
-
-            ),
-
-
-
-          )
-
-
-
-        ],
-
-
-
-      ),
-
-
-
-    );
-
-
-
-  }
-
-
-
-}         
+}
