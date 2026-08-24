@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
-
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../widgets/animated_ev_background.dart';
+
 import '../../services/api_service.dart';
+
+import 'vehicle_selection_screen.dart';
+import 'ride_confirmation_screen.dart';
+
 
 
 class BookingScreen extends StatefulWidget {
 
-
-  const BookingScreen({super.key});
+  const BookingScreen({
+    super.key,
+  });
 
 
   @override
@@ -21,77 +26,168 @@ class BookingScreen extends StatefulWidget {
 }
 
 
+
+
 class _BookingScreenState extends State<BookingScreen> {
 
 
 
-  GoogleMapController? mapController;
+  final pickupController =
+  TextEditingController();
+
+
+
+  final destinationController =
+  TextEditingController();
+
+
 
 
 
   String selectedVehicle = "Mini EV";
 
-final TextEditingController pickupController =
-TextEditingController();
-
-final TextEditingController destinationController =
-TextEditingController();
 
 
-bool isBooking = false;
-
-  final vehicles = [
-
-    "Mini EV",
-    "Sedan EV",
-    "SUV EV"
-
-  ];
+  double distanceKm = 5;
 
 
-  LatLng currentLocation = const LatLng(
 
-    23.2599,
-
-    77.4126,
-
-  );
+  bool isLoading = false;
 
 
-  bool isLocationLoading = true;
+
 
 
   @override
-  void initState(){
+  void dispose(){
 
 
-    super.initState();
+    pickupController.dispose();
 
 
-    getCurrentLocation();
+    destinationController.dispose();
+
+
+    super.dispose();
+
+  }
+
+
+
+
+
+
+
+  // =========================
+  // FARE CALCULATION
+  // =========================
+
+
+  double calculateFare(){
+
+
+    double rate = 10;
+
+
+
+    if(selectedVehicle == "Bike"){
+
+      rate = 8;
+
+    }
+
+
+    else if(selectedVehicle == "Auto"){
+
+      rate = 12;
+
+    }
+
+
+    else if(selectedVehicle == "Mini EV"){
+
+      rate = 10;
+
+    }
+
+
+    else if(selectedVehicle == "Sedan EV"){
+
+      rate = 15;
+
+    }
+
+
+    else if(selectedVehicle == "Premium EV"){
+
+      rate = 25;
+
+    }
+
+
+
+    return distanceKm * rate;
 
 
   }
 
 
-  Future<void> getCurrentLocation() async {
 
-    bool serviceEnabled =
+
+
+
+
+
+
+  // =========================
+  // CURRENT LOCATION
+  // =========================
+
+
+  Future getCurrentLocation() async{
+
+
+    bool serviceEnabled;
+
+
+    LocationPermission permission;
+
+
+
+
+
+    serviceEnabled =
 
     await Geolocator.isLocationServiceEnabled();
+
+
 
 
     if(!serviceEnabled){
 
 
-      setState((){
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
 
-        isLocationLoading = false;
 
-      });
+        const SnackBar(
+
+
+          content:
+
+          Text(
+              "Please enable location service"
+          ),
+
+
+        ),
+
+
+      );
 
 
       return;
+
 
     }
 
@@ -100,7 +196,7 @@ bool isBooking = false;
 
 
 
-    LocationPermission permission =
+    permission =
 
     await Geolocator.checkPermission();
 
@@ -108,7 +204,9 @@ bool isBooking = false;
 
 
 
-    if(permission == LocationPermission.denied){
+    if(permission ==
+
+    LocationPermission.denied){
 
 
 
@@ -117,26 +215,45 @@ bool isBooking = false;
       await Geolocator.requestPermission();
 
 
-
     }
 
 
 
 
 
-    if(permission == LocationPermission.deniedForever){
+    if(permission ==
+
+    LocationPermission.deniedForever){
 
 
-      setState((){
 
-        isLocationLoading = false;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
 
-      });
+
+        const SnackBar(
+
+
+          content:
+
+          Text(
+              "Location permission denied"
+          ),
+
+
+        ),
+
+
+      );
+
 
 
       return;
 
+
     }
+
+
 
 
 
@@ -150,21 +267,76 @@ bool isBooking = false;
 
 
 
+
     setState((){
 
 
+      pickupController.text =
 
-      currentLocation = LatLng(
 
-        position.latitude,
+      "${position.latitude}, ${position.longitude}";
 
-        position.longitude,
+
+
+    });
+
+
+
+
+  }
+
+
+    // =========================
+  // CONFIRM RIDE
+  // =========================
+
+
+  Future confirmRide() async {
+
+
+
+    if(
+    pickupController.text.trim().isEmpty ||
+        destinationController.text.trim().isEmpty
+    ){
+
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+
+
+
+        const SnackBar(
+
+
+          content:
+
+          Text(
+              "Please enter pickup and destination"
+          ),
+
+
+        ),
+
 
       );
 
 
+      return;
 
-      isLocationLoading = false;
+
+    }
+
+
+
+
+
+
+
+    setState((){
+
+
+      isLoading = true;
 
 
 
@@ -174,144 +346,225 @@ bool isBooking = false;
 
 
 
-    mapController?.animateCamera(
 
 
-      CameraUpdate.newLatLngZoom(
-
-        currentLocation,
-
-        15,
-
-      ),
-
-
-    );
+    try{
 
 
 
-  }
+      var response =
 
-
-Future<void> bookRide() async {
-
-
-  setState((){
-
-    isBooking = true;
-
-  });
+      await ApiService.bookRide(
 
 
 
-  var response = await ApiService.bookRide(
+        pickup:
 
-
-    pickup:
-
-    pickupController.text,
-
-
-    destination:
-
-    destinationController.text,
-
-
-    vehicleType:
-
-    selectedVehicle,
-
-
-  );
+        pickupController.text.trim(),
 
 
 
-  setState((){
+        destination:
 
-    isBooking = false;
+        destinationController.text.trim(),
 
-  });
+
+
+        vehicleType:
+
+        selectedVehicle,
+
+
+
+        distance:
+
+        distanceKm,
+
+
+
+        fare:
+
+        calculateFare(),
+
+
+
+      );
 
 
 
 
 
-  if(response["status"] == true){
 
 
-    ScaffoldMessenger.of(context)
-    .showSnackBar(
+
+      setState((){
 
 
-      const SnackBar(
+        isLoading = false;
 
-        content:
 
-        Text(
 
-          "Ride booked successfully"
+      });
+
+
+
+
+
+
+
+      if(response["status"] == true){
+
+
+
+
+
+        Navigator.pushReplacement(
+
+
+
+          context,
+
+
+
+          MaterialPageRoute(
+
+
+
+            builder:(context)=>
+
+
+
+            RideConfirmationScreen(
+
+
+
+              rideData:
+
+              response["ride"],
+
+
+
+            ),
+
+
+
+          ),
+
+
+
+        );
+
+
+
+
+
+      }
+
+      else{
+
+
+
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+
+
+
+          SnackBar(
+
+
+
+            content:
+
+
+            Text(
+
+
+
+              response["message"]
+
+                  ??
+
+                  "Ride booking failed"
+
+
+
+            ),
+
+
+
+          ),
+
+
+
+        );
+
+
+
+      }
+
+
+
+
+
+    }
+
+
+
+    catch(e){
+
+
+
+      setState((){
+
+
+        isLoading = false;
+
+
+      });
+
+
+
+
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+
+
+
+        SnackBar(
+
+
+
+          content:
+
+          Text(
+
+              e.toString()
+
+          ),
+
+
 
         ),
 
-      ),
 
 
-    );
+      );
 
 
-  }
+
+    }
 
 
-  else{
-
-
-    ScaffoldMessenger.of(context)
-    .showSnackBar(
-
-
-      SnackBar(
-
-        content:
-
-        Text(
-
-          response["message"] ??
-
-          "Ride booking failed"
-
-        ),
-
-      ),
-
-
-    );
 
 
   }
-
-
-}
-
-
-@override
-void dispose(){
-
- pickupController.dispose();
-
- destinationController.dispose();
-
- super.dispose();
-
-}
-
-
 
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
 
 
     return Scaffold(
-
 
 
       body:
@@ -326,15 +579,19 @@ void dispose(){
         SafeArea(
 
 
+
           child:
 
 
           SingleChildScrollView(
 
 
+
             padding:
 
+
             const EdgeInsets.all(20),
+
 
 
 
@@ -344,20 +601,146 @@ void dispose(){
             Column(
 
 
+
               crossAxisAlignment:
 
               CrossAxisAlignment.start,
 
 
 
-              children:[
+              children: [
+
+
+
+
+
+                Row(
+
+
+
+                  children: [
+
+
+
+                    IconButton(
+
+
+
+                      onPressed:(){
+
+
+                        Navigator.pop(context);
+
+
+                      },
+
+
+
+                      icon:
+
+
+                      const Icon(
+
+
+
+                        LucideIcons.arrowLeft,
+
+
+                        color:
+
+                        Colors.white,
+
+
+                      ),
+
+
+
+                    ),
+
+
+
+
+
+
+                    const Text(
+
+
+
+                      "Book Your Ride",
+
+
+
+                      style:
+
+
+                      TextStyle(
+
+
+
+                        color:
+
+                        Colors.white,
+
+
+
+                        fontSize:24,
+
+
+
+                        fontWeight:
+
+                        FontWeight.bold,
+
+
+                      ),
+
+
+
+                    )
+
+
+
+                  ],
+
+
+
+                ),
+
+
+
+
+
+
+
+                const SizedBox(height:25),
+
+
+
+
+
+
+                rideInputCard(),
+
+
+
+
+
+
+
+                const SizedBox(height:25),
+
+
+
+
 
 
 
                 const Text(
 
 
-                  "Book Your Ride 🚗",
+
+                  "Select Vehicle",
+
 
 
                   style:
@@ -366,12 +749,15 @@ void dispose(){
                   TextStyle(
 
 
+
                     color:
 
                     Colors.white,
 
 
-                    fontSize:28,
+
+                    fontSize:18,
+
 
 
                     fontWeight:
@@ -382,671 +768,1299 @@ void dispose(){
                   ),
 
 
+
                 ),
+
+
+
+
+
+
+
+
+                const SizedBox(height:15),
+
+
+
+
+
+
+                vehicleCard(),
+
+
+
+
+
 
 
 
                 const SizedBox(height:25),
 
 
-// GOOGLE MAP
 
-Container(
 
-  height:250,
 
-  width:double.infinity,
 
 
-  decoration:
 
-  BoxDecoration(
+                fareCard(),
 
-    borderRadius:
 
-    BorderRadius.circular(25),
 
-    border:
 
-    Border.all(
 
-      color:
 
-      AppColors.primaryGreen
-          .withOpacity(0.3),
 
-    ),
+                const SizedBox(height:30),
 
-  ),
 
 
 
-  child:
 
-  ClipRRect(
 
-    borderRadius:
 
-    BorderRadius.circular(25),
+                SizedBox(
 
 
 
-    child:
+                  width:
 
+                  double.infinity,
 
 
-    isLocationLoading
 
+                  height:
 
+                  55,
 
-    ?
 
 
+                  child:
 
-    const Center(
 
-      child:
+                  ElevatedButton(
 
-      CircularProgressIndicator(
 
-        color:
 
-        AppColors.primaryGreen,
+                    onPressed:
 
-      ),
 
-    )
+                    isLoading
 
+                        ?
 
+                    null
 
-    :
+                        :
 
+                    confirmRide,
 
 
-    GoogleMap(
 
 
 
-      initialCameraPosition:
+                    style:
 
 
+                    ElevatedButton.styleFrom(
 
-      CameraPosition(
 
-        target:
 
-        currentLocation,
+                      backgroundColor:
 
-        zoom:15,
+                      AppColors.primaryGreen,
 
-      ),
 
 
+                      foregroundColor:
 
+                      Colors.black,
 
-      myLocationEnabled:true,
 
 
+                      shape:
 
-      myLocationButtonEnabled:true,
 
+                      RoundedRectangleBorder(
 
 
 
-      markers:{
+                        borderRadius:
 
+                        BorderRadius.circular(20),
 
 
-        Marker(
 
+                      ),
 
-          markerId:
 
-          const MarkerId("user_location"),
 
+                    ),
 
 
-          position:
 
-          currentLocation,
 
 
+                    child:
 
-          infoWindow:
 
-          const InfoWindow(
+                    isLoading
 
-            title:
 
-            "Your Location",
 
-          ),
+                        ?
 
 
 
-        ),
+                    const CircularProgressIndicator(
 
 
 
-      },
+                      color:
 
+                      Colors.black,
 
 
+                    )
 
 
-      onMapCreated:(controller){
 
+                        :
 
-        mapController = controller;
 
 
-      },
+                    const Text(
 
 
 
-    ),
+                      "CONFIRM RIDE",
 
 
 
-  ),
+                      style:
 
 
+                      TextStyle(
 
-),
 
 
+                        fontWeight:
 
+                        FontWeight.bold,
 
 
-const SizedBox(height:25),
+                      ),
 
 
 
+                    ),
 
 
 
-locationField(
 
-"Pickup Location",
+                  ),
 
-Icons.my_location,
 
-pickupController,
 
-),
+                )
 
 
 
-
-const SizedBox(height:15),
-
-
-
-
-
-locationField(
-
-"Destination",
-
-Icons.location_on,
-
-destinationController,
-
-),
-
-
-
-
-
-const SizedBox(height:25),
-
-const Text(
-
-
-"Select Vehicle",
-
-
-style:
-
-
-TextStyle(
-
-
-color:
-
-Colors.white,
-
-
-fontSize:22,
-
-
-fontWeight:
-
-FontWeight.bold,
-
-
-),
-
-
-),
-
-
-const SizedBox(height:15),
-
-
-Wrap(
-
-
-spacing:10,
-
-
-children:
-
-
-vehicles.map((vehicle){
-
-
-
-return ChoiceChip(
-
-
-
-label:
-
-
-Text(vehicle),
-
-
-
-selected:
-
-selectedVehicle == vehicle,
-
-
-
-onSelected:(value){
-
-
-
-setState((){
-
-
-selectedVehicle = vehicle;
-
-
-});
-
-
-
-},
-
-
-
-selectedColor:
-
-AppColors.primaryGreen,
-
-
-
-);
-
-
-
-}).toList(),
-
-
-
-),
-
-
-
-
-
-
-const SizedBox(height:25),
-
-
-
-
-
-
-Container(
-
-
-padding:
-
-const EdgeInsets.all(20),
-
-
-
-decoration:
-
-
-BoxDecoration(
-
-
-color:
-
-Colors.white.withOpacity(0.08),
-
-
-
-borderRadius:
-
-BorderRadius.circular(20),
-
-
-
-),
-
-
-
-
-child:
-
-
-Row(
-
-
-
-mainAxisAlignment:
-
-MainAxisAlignment.spaceBetween,
-
-
-
-children:[
-
-
-
-const Text(
-
-
-
-"Estimated Fare",
-
-
-
-style:
-
-
-TextStyle(
-
-
-
-color:
-
-Colors.white70,
-
-
-),
-
-
-
-),
-
-
-
-
-const Text(
-
-
-
-"₹ 120",
-
-
-
-style:
-
-
-TextStyle(
-
-
-
-color:
-
-AppColors.primaryGreen,
-
-
-fontSize:24,
-
-
-fontWeight:
-
-FontWeight.bold,
-
-
-),
-
-
-
-),
-
-
-
-],
-
-
-
-),
-
-
-
-),
-
-
-
-
-
-const SizedBox(height:25),
-
-
-
-
-
-SizedBox(
-
-  width: double.infinity,
-
-  child: ElevatedButton(
-
-    style: ElevatedButton.styleFrom(
-
-      backgroundColor:
-      AppColors.primaryGreen,
-
-      padding:
-      const EdgeInsets.symmetric(
-        vertical:16,
-      ),
-
-      shape:
-      RoundedRectangleBorder(
-
-        borderRadius:
-        BorderRadius.circular(30),
-
-      ),
-
-    ),
-
-
-    onPressed:
-
-    isBooking
-
-        ? null
-
-        : bookRide,
-
-
-    child:
-
-    isBooking
-
-        ?
-
-    const CircularProgressIndicator(
-
-      color: Colors.black,
-
-    )
-
-        :
-
-    const Text(
-
-      "BOOK RIDE",
-
-      style:
-
-      TextStyle(
-
-        color: Colors.black,
-
-        fontWeight: FontWeight.bold,
-
-        fontSize:16,
-
-      ),
-
-    ),
-
-  ),
-
-),
 
 
               ],
+
+
+
             ),
+
+
 
           ),
 
+
+
         ),
 
+
+
       ),
-    
+
+
+
     );
+
 
   }
 
 
 
-// ===============================
-// LOCATION FIELD WIDGET
-// ===============================
-
-Widget locationField(
-
-    String hint,
-
-    IconData icon,
-
-    TextEditingController controller,
-
-    )
-    {
-
-  return Container(
-
-    padding:
-
-    const EdgeInsets.symmetric(
-
-      horizontal: 15,
-
-      vertical: 5,
-
-    ),
 
 
-    decoration:
-
-    BoxDecoration(
-
-      color:
-
-      Colors.white.withOpacity(0.08),
 
 
-      borderRadius:
-
-      BorderRadius.circular(20),
 
 
-      border:
-
-      Border.all(
-
-        color:
-
-        AppColors.primaryGreen
-
-            .withOpacity(0.2),
-
-      ),
-
-    ),
+  Widget rideInputCard(){
 
 
-    child:
+
+    return Container(
 
 
-    TextField(
 
-      controller: controller,
+      padding:
+
+      const EdgeInsets.all(20),
 
 
-      style:
-
-      const TextStyle(
-
-        color: Colors.white,
-
-      ),
 
 
       decoration:
 
-      InputDecoration(
+
+      BoxDecoration(
 
 
-        hintText: hint,
+
+        color:
+
+        AppColors.card,
 
 
-        hintStyle:
 
-        const TextStyle(
+        borderRadius:
 
-          color: Colors.white54,
+        BorderRadius.circular(25),
+
+
+
+        border:
+
+        Border.all(
+
+
+
+          color:
+
+          AppColors.primaryGreen
+
+              .withOpacity(0.15),
+
 
         ),
 
 
+
+      ),
+
+
+
+
+      child:
+
+
+      Column(
+
+
+
+        children: [
+
+
+
+
+
+          locationField(
+
+
+
+            LucideIcons.navigation,
+
+
+            "Pickup Location",
+
+
+            pickupController,
+
+
+          ),
+
+
+
+
+
+
+          const SizedBox(height:10),
+
+
+
+
+
+          Align(
+
+
+
+            alignment:
+
+            Alignment.centerRight,
+
+
+
+            child:
+
+
+            TextButton.icon(
+
+
+
+              onPressed:
+
+              getCurrentLocation,
+
+
+
+              icon:
+
+
+              const Icon(
+
+
+
+                LucideIcons.locateFixed,
+
+
+
+                size:18,
+
+
+              ),
+
+
+
+              label:
+
+
+              const Text(
+
+
+
+                "Use Current Location",
+
+
+
+              ),
+
+
+
+              style:
+
+
+              TextButton.styleFrom(
+
+
+
+                foregroundColor:
+
+                AppColors.primaryGreen,
+
+
+              ),
+
+
+
+            ),
+
+
+
+          ),
+
+
+
+
+
+
+          const SizedBox(height:10),
+
+
+
+
+
+
+
+          locationField(
+
+
+
+            LucideIcons.mapPin,
+
+
+            "Destination",
+
+
+            destinationController,
+
+
+          ),
+
+
+
+
+        ],
+
+
+
+      ),
+
+
+
+    );
+
+
+  }
+
+
+
+
+
+
+
+
+
+  Widget locationField(
+
+
+
+      IconData icon,
+
+
+      String hint,
+
+
+      TextEditingController controller,
+
+
+      ){
+
+
+
+    return TextField(
+
+
+
+      controller:
+
+      controller,
+
+
+
+      style:
+
+
+      const TextStyle(
+
+
+
+        color:
+
+        Colors.white,
+
+
+      ),
+
+
+
+
+
+      decoration:
+
+
+      InputDecoration(
+
+
+
+        hintText:
+
+        hint,
+
+
+
+        hintStyle:
+
+
+        const TextStyle(
+
+
+
+          color:
+
+          Colors.white54,
+
+
+        ),
+
+
+
+
+
+
         prefixIcon:
+
 
         Icon(
 
+
+
           icon,
+
+
 
           color:
 
           AppColors.primaryGreen,
 
+
         ),
+
+
+
+
+
+        filled:true,
+
+
+
+        fillColor:
+
+        Colors.black26,
+
+
+
 
 
         border:
 
-        InputBorder.none,
+
+        OutlineInputBorder(
+
+
+
+          borderRadius:
+
+          BorderRadius.circular(18),
+
+
+
+          borderSide:
+
+          BorderSide.none,
+
+
+
+        ),
+
 
 
       ),
 
-    ),
 
-  );
 
-}
+    );
+
+
+  }
+
+    Widget vehicleCard(){
+
+
+    return InkWell(
+
+
+
+      onTap:(){
+
+
+
+        Navigator.push(
+
+
+
+          context,
+
+
+
+          MaterialPageRoute(
+
+
+
+            builder:(context)=>
+
+
+
+            VehicleSelectionScreen(
+
+  selected: selectedVehicle,
+
+  distance: distanceKm,
+
+),
+
+
+
+          ),
+
+
+
+        ).then((value){
+
+
+
+          if(value != null){
+
+
+
+            setState((){
+
+
+
+              selectedVehicle = value;
+
+
+
+            });
+
+
+
+          }
+
+
+
+        });
+
+
+
+      },
+
+
+
+      child:
+
+
+
+      Container(
+
+
+
+        padding:
+
+        const EdgeInsets.all(20),
+
+
+
+
+        decoration:
+
+
+        BoxDecoration(
+
+
+
+          color:
+
+          AppColors.card,
+
+
+
+          borderRadius:
+
+          BorderRadius.circular(25),
+
+
+
+
+
+          border:
+
+
+          Border.all(
+
+
+
+            color:
+
+            AppColors.primaryGreen
+
+                .withOpacity(0.25),
+
+
+
+          ),
+
+
+
+        ),
+
+
+
+
+
+        child:
+
+
+
+        Row(
+
+
+
+          children: [
+
+
+
+
+
+            Container(
+
+
+
+              height:55,
+
+
+
+              width:55,
+
+
+
+              decoration:
+
+
+              BoxDecoration(
+
+
+
+                color:
+
+                AppColors.primaryGreen
+
+                    .withOpacity(0.15),
+
+
+
+                borderRadius:
+
+                BorderRadius.circular(18),
+
+
+
+              ),
+
+
+
+
+
+              child:
+
+
+              Icon(
+
+
+
+                getVehicleIcon(),
+
+
+
+                color:
+
+                AppColors.primaryGreen,
+
+
+
+                size:30,
+
+
+
+              ),
+
+
+
+            ),
+
+
+
+
+
+            const SizedBox(width:15),
+
+
+
+
+
+
+            Expanded(
+
+
+
+              child:
+
+
+
+              Column(
+
+
+
+                crossAxisAlignment:
+
+                CrossAxisAlignment.start,
+
+
+
+                children: [
+
+
+
+                  Text(
+
+
+
+                    selectedVehicle,
+
+
+
+                    style:
+
+
+                    const TextStyle(
+
+
+
+                      color:
+
+                      Colors.white,
+
+
+
+                      fontSize:18,
+
+
+
+                      fontWeight:
+
+                      FontWeight.bold,
+
+
+                    ),
+
+
+
+                  ),
+
+
+
+
+
+                  const SizedBox(height:5),
+
+
+
+
+
+                  Text(
+
+
+
+                    "Change vehicle",
+
+
+
+                    style:
+
+
+                    const TextStyle(
+
+
+
+                      color:
+
+                      Colors.white54,
+
+
+
+                      fontSize:13,
+
+
+                    ),
+
+
+
+                  ),
+
+
+
+
+                ],
+
+
+
+              ),
+
+
+
+            ),
+
+
+
+
+
+            const Icon(
+
+
+
+              LucideIcons.chevronRight,
+
+
+
+              color:
+
+              Colors.white54,
+
+
+
+            )
+
+
+
+          ],
+
+
+
+        ),
+
+
+
+      ),
+
+
+
+    );
+
+
+
+  }
+
+
+
+
+
+
+
+
+
+  IconData getVehicleIcon(){
+
+
+
+    if(selectedVehicle == "Bike"){
+
+
+      return LucideIcons.bike;
+
+
+    }
+
+
+    else if(selectedVehicle == "Auto"){
+
+
+      return LucideIcons.carFront;
+
+
+    }
+
+
+    else if(selectedVehicle == "Premium EV"){
+
+
+      return LucideIcons.sparkles;
+
+
+    }
+
+
+    else{
+
+
+      return LucideIcons.car;
+
+
+    }
+
+
+
+  }
+
+
+
+
+
+
+
+
+
+  Widget fareCard(){
+
+
+
+    return Container(
+
+
+
+      padding:
+
+      const EdgeInsets.all(22),
+
+
+
+
+      decoration:
+
+
+      BoxDecoration(
+
+
+
+        gradient:
+
+
+        LinearGradient(
+
+
+
+          colors:[
+
+
+
+            AppColors.darkGreen
+
+                .withOpacity(0.5),
+
+
+
+            AppColors.card,
+
+
+
+          ],
+
+
+
+        ),
+
+
+
+        borderRadius:
+
+        BorderRadius.circular(25),
+
+
+
+        border:
+
+
+        Border.all(
+
+
+
+          color:
+
+          AppColors.primaryGreen
+
+              .withOpacity(0.25),
+
+
+
+        ),
+
+
+
+      ),
+
+
+
+
+
+      child:
+
+
+      Row(
+
+
+
+        mainAxisAlignment:
+
+        MainAxisAlignment.spaceBetween,
+
+
+
+        children: [
+
+
+
+
+
+          Column(
+
+
+
+            crossAxisAlignment:
+
+            CrossAxisAlignment.start,
+
+
+
+            children: [
+
+
+
+
+
+              const Text(
+
+
+
+                "Estimated Fare",
+
+
+
+                style:
+
+
+                TextStyle(
+
+
+
+                  color:
+
+                  Colors.white70,
+
+
+
+                  fontSize:14,
+
+
+                ),
+
+
+
+              ),
+
+
+
+
+
+              const SizedBox(height:6),
+
+
+
+
+
+              Text(
+
+
+
+                "${distanceKm.toStringAsFixed(0)} km",
+
+
+
+                style:
+
+
+                const TextStyle(
+
+
+
+                  color:
+
+                  Colors.white54,
+
+
+
+                  fontSize:13,
+
+
+                ),
+
+
+
+              ),
+
+
+
+
+            ],
+
+
+
+          ),
+
+
+
+
+
+
+
+
+          Text(
+
+
+
+            "₹${calculateFare().toStringAsFixed(0)}",
+
+
+
+            style:
+
+
+            const TextStyle(
+
+
+
+              color:
+
+              AppColors.primaryGreen,
+
+
+
+              fontSize:28,
+
+
+
+              fontWeight:
+
+              FontWeight.bold,
+
+
+            ),
+
+
+
+          )
+
+
+
+
+
+        ],
+
+
+
+      ),
+
+
+
+    );
+
+
+
+  }
+
+
 
 }
