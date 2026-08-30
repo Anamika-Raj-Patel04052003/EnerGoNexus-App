@@ -17,57 +17,58 @@ import '../../services/api_service.dart';
 
 import '../ride/booking_screen.dart';
 import '../wallet/wallet_screen.dart';
-
+import '../ride/active_ride_screen.dart';
 
 
 class HomeScreen extends StatefulWidget {
-
+final Map<String,dynamic>? activeRide;
   const HomeScreen({
     super.key,
+    this.activeRide,
   });
-
 
   @override
   State<HomeScreen> createState() =>
       _HomeScreenState();
 
 }
-
-
-
-
-
 class _HomeScreenState extends State<HomeScreen> {
-
-
   String userName = "EnerGo User";
-
-
   double walletBalance = 0;
+  String rideStatus = "No active ride";
 
 
-  String rideStatus =
-      "No active ride";
+String driverName = "No Driver Assigned";
+
+
+String eta = "--";
 
 
 
   bool loading = true;
 
+ @override
+void initState(){
+
+super.initState();
 
 
+if(widget.activeRide != null){
 
-  @override
-  void initState(){
-
-    super.initState();
-
-    loadHomeData();
-
-  }
+  rideStatus =
+      widget.activeRide!["ride_status"] ?? "Pending";
 
 
+  driverName =
+      widget.activeRide!["driver"]?["full_name"] ??
+      "Searching Driver";
+
+}
 
 
+loadHomeData();
+
+}
 
   Future<void> loadHomeData() async {
 
@@ -90,8 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       }
 
-
-
       /*
       Wallet API integration later:
 
@@ -104,17 +103,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
       */
 
-
-
       setState((){
 
 
         loading = false;
 
-
       });
-
-
 
     }
 
@@ -126,53 +120,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
         loading = false;
 
-
       });
-
 
       debugPrint(
           e.toString()
       );
 
-
     }
-
-
-
   }
-
-
-
-
 
   @override
   Widget build(BuildContext context) {
 
-
-
     return Scaffold(
-
-
-
       body:
-
 
       AnimatedEVBackground(
 
-
-
         child:
-
-
         SafeArea(
-
-
 
           child:
 
-
           loading
-
               ?
 
           const Center(
@@ -192,104 +162,55 @@ class _HomeScreenState extends State<HomeScreen> {
 
           SingleChildScrollView(
 
-
-
             padding:
 
             const EdgeInsets.all(20),
 
-
-
-
             child:
 
-
             Column(
-
-
 
               crossAxisAlignment:
 
               CrossAxisAlignment.start,
 
-
-
               children: [
 
-
-
                 // HEADER
-
-
                 PremiumHeader(
 
-
                   name:userName,
-
 
                   location:
                   "Bengaluru, India",
 
-
                 ),
-
-
-
 
                 const SizedBox(height:28),
 
-
-
-
-
-
                 // RIDE SEARCH
-
-
                 RideSearchCard(
 
-
-
                   onTap:(){
-
-
 
                     Navigator.push(
 
 
                       context,
 
-
                       MaterialPageRoute(
-
 
                         builder:(context)=>
 
                         const BookingScreen(),
 
-
                       ),
 
-
                     );
-
-
                   },
-
-
                 ),
 
-
-
-
-
-
                 const SizedBox(height:30),
-
-
-
-
-
 
                 const SectionTitle(
 
@@ -298,17 +219,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 ),
 
-
-
-
                 const SizedBox(height:15),
 
-
-
-
                 ServiceGrid(
-
-
 
                   onRideTap:(){
 
@@ -330,41 +243,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   },
 
-
-
                   onChargingTap:(){
 
-
                   },
-
-
 
                   onParcelTap:(){
 
-
                   },
-
-
 
                   onFacilityTap:(){
-
-
                   },
-
 
                 ),
 
-
-
-
-
-
                 const SizedBox(height:30),
-
-
-
-
-
 
                 const SectionTitle(
 
@@ -374,26 +266,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
 
-
-
                 const SizedBox(height:15),
 
-
-
-
-
                 WalletSummaryCard(
-
-
 
                   balance:
 
                   walletBalance,
 
-
-
                   onAddMoney:(){
-
 
                     Navigator.push(
 
@@ -409,30 +290,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     );
 
-
                   },
-
-
 
                   onHistory:(){
 
-
                   },
-
 
                 ),
 
-
-
-
-
-
                 const SizedBox(height:30),
-
-
-
-
-
 
                 const SectionTitle(
 
@@ -441,59 +307,49 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 ),
 
-
-
-
-
-
                 const SizedBox(height:15),
 
+               ActiveTripCard(
+
+ status:
+ rideStatus,
 
 
+ driverName:
+ driverName,
 
 
-
-                ActiveTripCard(
-
-
-
-                  status:
-
-                  rideStatus,
-
-
-
-                  driverName:
-
-                  "No Driver Assigned",
-
-
-
-                  eta:
-
-                  "--",
-
-
-
+ eta:
+ eta,
                   onTrackRide:(){
 
+  if(widget.activeRide != null){
 
-                  },
+    Navigator.push(
 
+      context,
+
+      MaterialPageRoute(
+
+        builder:(context)=>
+
+        ActiveRideScreen(
+
+          rideData: widget.activeRide!,
+
+        ),
+
+      ),
+
+    );
+
+  }
+
+},
 
                 ),
 
-
-
-
-
-
                 const SizedBox(height:30),
-
-
-
-
-
 
                 const SectionTitle(
 
@@ -501,73 +357,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   "Nearby EV Stations",
 
-
                 ),
-
-
-
 
                 const SizedBox(height:15),
 
-
-
-
-
-
                 ChargingStationCard(
-
-
 
                   stationName:
 
                   "EnerGo Fast Charging Hub",
 
-
-
                   distance:
 
                   "2.5 km away",
-
-
 
                   ports:
 
                   "4 Ports Available",
 
-
-
                   chargingType:
 
                   "Fast Charging",
-
-
 
                   price:
 
                   "₹12/unit",
 
-
                   onTap:(){
 
-
-
                   },
-
-
                 ),
 
-
-
-
-
-
-
                 const SizedBox(height:30),
-
-
-
-
-
 
                 const SectionTitle(
 
@@ -575,62 +396,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   "AI Smart Assistant",
 
-
                 ),
-
-
-
-
-
-
                 const SizedBox(height:15),
-
-
-
-
-
 
                 AISuggestionCard(
 
-
-
                   onTap:(){
-
-
                   },
 
-
                 ),
-
-
-
-
-
-
                 const SizedBox(height:30),
-
-
 
               ],
 
-
             ),
-
-
           ),
-
-
-
         ),
-
-
-
       ),
-
-
     );
-
-
   }
 
 

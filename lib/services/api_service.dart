@@ -724,15 +724,16 @@ class ApiService {
   // BOOK RIDE
   // ============================================================
 
-  static Future<Map<String, dynamic>>
-      bookRide({
-    required String pickup,
-    required String destination,
-    required String vehicleType,
-    required double distance,
-    required double fare,
-  }) async {
-    try {
+static Future<Map<String, dynamic>> bookRide({
+  required String pickup,
+  required String destination,
+  required String vehicleType,
+  required double distance,
+  required double fare,
+  required int serviceTypeId,
+  required int vehicleCategoryId,
+}) async {
+  try {
       // ========================================================
       // TOKEN
       // ========================================================
@@ -884,36 +885,25 @@ class ApiService {
       // ========================================================
       // BACKEND REQUEST BODY
       // ========================================================
-      //
-      // Tumhare RideController ke according exactly:
-      //
-      // passenger_id
-      // pickup_location
-      // destination
-      // distance_km
-      // estimated_fare
-      //
-      // vehicle_type backend RideController mein required
-      // nahi hai, isliye request mein nahi bhej rahe.
-      //
-      // ========================================================
 
-      final requestBody = {
-        "passenger_id":
-            passengerId,
 
-        "pickup_location":
-            pickup.trim(),
+final requestBody = {
 
-        "destination":
-            destination.trim(),
+"passenger_id": passengerId,
 
-        "distance_km":
-            distance,
+"service_type_id": serviceTypeId,
 
-        "estimated_fare":
-            fare,
-      };
+"vehicle_category_id": vehicleCategoryId,
+
+"pickup_location": pickup.trim(),
+
+"destination": destination.trim(),
+
+"distance_km": distance,
+
+"estimated_fare": fare,
+
+};
 
       print(
         "REQUEST BODY:",
@@ -1019,6 +1009,47 @@ class ApiService {
     }
   }
 
+  // GET PASSENGER RIDES
+
+static Future<Map<String, dynamic>> getPassengerRides(
+    dynamic passengerId
+) async {
+
+  try {
+
+    final token = await getToken();
+
+     if(token == null || token.isEmpty){
+
+    return {
+      "status":false,
+      "message":"User is not logged in"
+    };
+
+  }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/passenger/rides/$passengerId"
+      ),
+      headers: authHeaders(token),
+    );
+
+
+    return _decodeResponse(response);
+
+
+  } catch(e) {
+
+    return {
+      "status":false,
+      "message":e.toString()
+    };
+
+  }
+
+}
+
   // ============================================================
   // GET SINGLE RIDE
   // ============================================================
@@ -1121,6 +1152,851 @@ class ApiService {
     }
   }
 
+
+  static Future<Map<String, dynamic>> autoAssignRide(
+    dynamic rideId
+) async {
+
+  try {
+
+    final token = await getToken();
+
+    if(token == null || token.isEmpty){
+      return {
+        "status": false,
+        "message": "User is not logged in"
+      };
+    }
+
+
+    final response = await http.put(
+
+      Uri.parse(
+        "$baseUrl/ride/$rideId/auto-assign"
+      ),
+
+      headers: authHeaders(token),
+
+    );
+
+
+    final data = _decodeResponse(response);
+
+
+    print("AUTO ASSIGN STATUS: ${response.statusCode}");
+
+    print("AUTO ASSIGN RESPONSE:");
+
+    print(response.body);
+
+
+    return data;
+
+
+  } catch(e){
+
+    return {
+      "status": false,
+      "message": "Unable to assign driver",
+      "error": e.toString()
+    };
+
+  }
+
+}
+
+
+// ============================================================
+// DRIVER ARRIVED
+// ============================================================
+
+static Future<Map<String,dynamic>> rideArrived(
+    dynamic rideId
+) async {
+
+  try {
+
+    final token = await getToken();
+
+    if(token == null || token.isEmpty){
+      return {
+        "status":false,
+        "message":"User not logged in"
+      };
+    }
+
+
+    final response = await http.put(
+
+      Uri.parse(
+        "$baseUrl/ride/$rideId/arrived"
+      ),
+
+      headers: authHeaders(token),
+
+    );
+
+
+    return _decodeResponse(response);
+
+
+  }catch(e){
+
+    return {
+
+      "status":false,
+      "message":"Unable to update ride status",
+      "error":e.toString()
+
+    };
+
+  }
+
+}
+
+
+
+
+
+// ============================================================
+// START RIDE
+// ============================================================
+
+
+static Future<Map<String,dynamic>> startRide(
+    dynamic rideId
+) async {
+
+
+ try {
+
+
+  final token = await getToken();
+
+
+  if(token == null || token.isEmpty){
+
+    return {
+      "status":false,
+      "message":"User not logged in"
+    };
+
+  }
+
+
+
+  final response = await http.put(
+
+    Uri.parse(
+      "$baseUrl/ride/$rideId/start"
+    ),
+
+    headers: authHeaders(token),
+
+  );
+
+
+  return _decodeResponse(response);
+
+
+
+ }catch(e){
+
+
+  return {
+
+   "status":false,
+   "message":"Unable to start ride",
+   "error":e.toString()
+
+  };
+
+
+ }
+
+
+}
+
+
+
+
+
+// ============================================================
+// COMPLETE RIDE
+// ============================================================
+
+
+static Future<Map<String,dynamic>> completeRide(
+
+ dynamic rideId,
+ double finalFare
+
+) async {
+
+
+
+try{
+
+
+final token = await getToken();
+
+
+if(token == null || token.isEmpty){
+
+ return {
+
+  "status":false,
+  "message":"User not logged in"
+
+ };
+
+}
+
+
+
+
+final response = await http.put(
+
+ Uri.parse(
+
+   "$baseUrl/ride/$rideId/complete"
+
+ ),
+
+
+ headers:authHeaders(token),
+
+
+ body:jsonEncode({
+
+   "final_fare":finalFare
+
+ })
+
+);
+
+
+
+return _decodeResponse(response);
+
+
+
+}catch(e){
+
+
+return {
+
+ "status":false,
+ "message":"Unable to complete ride",
+ "error":e.toString()
+
+};
+}
+}
+
+// ============================================================
+// DRIVER RIDE REQUESTS
+// ============================================================
+
+static Future<Map<String,dynamic>> getDriverRideRequests() async {
+
+  try {
+
+    final token = await getToken();
+
+
+    if(token == null || token.isEmpty){
+
+      return {
+        "status":false,
+        "message":"User not logged in"
+      };
+
+    }
+
+
+    final response = await http.get(
+
+      Uri.parse(
+        "$baseUrl/driver/ride-requests"
+      ),
+
+      headers: authHeaders(token),
+
+    );
+
+
+    return _decodeResponse(response);
+
+
+  }catch(e){
+
+    return {
+
+      "status":false,
+
+      "message":
+      "Unable to fetch ride requests",
+
+      "error":
+      e.toString()
+
+    };
+
+  }
+
+}
+
+// ==========================================================
+// DRIVER ACTIVE RIDE
+// ==========================================================
+
+static Future<Map<String,dynamic>> getDriverActiveRide() async {
+
+  try {
+
+
+    final token = await getToken();
+
+
+    if(token == null){
+
+      return {
+
+        "status":false,
+
+        "message":"Unauthenticated"
+
+      };
+
+    }
+
+
+
+    final response = await http.get(
+
+      Uri.parse(
+        "$baseUrl/driver/active-ride"
+      ),
+
+
+      headers: {
+
+        "Authorization":
+        "Bearer $token",
+
+
+        "Accept":
+        "application/json",
+
+      },
+
+    );
+
+
+
+    return jsonDecode(response.body);
+
+  }
+
+  catch(e){
+
+
+    return {
+
+      "status":false,
+
+      "message":e.toString(),
+
+    };
+
+
+  }
+
+}
+
+// ============================================================
+// ACCEPT RIDE REQUEST
+// ============================================================
+
+static Future<Map<String,dynamic>> acceptRideRequest(
+    dynamic requestId
+) async {
+
+
+  try {
+
+
+    final token = await getToken();
+
+
+    if(token == null || token.isEmpty){
+
+      return {
+        "status":false,
+        "message":"User not logged in"
+      };
+
+    }
+
+
+
+    final response = await http.put(
+
+      Uri.parse(
+        "$baseUrl/ride-request/$requestId/accept"
+      ),
+
+      headers: authHeaders(token),
+
+    );
+
+
+
+    return _decodeResponse(response);
+
+
+
+  }catch(e){
+
+    return {
+
+      "status":false,
+
+      "message":
+      "Unable to accept ride",
+
+      "error":
+      e.toString()
+
+    };
+
+  }
+
+
+}
+
+
+// ============================================================
+// REJECT RIDE REQUEST
+// ============================================================
+
+static Future<Map<String,dynamic>> rejectRideRequest(
+    dynamic requestId
+) async {
+
+
+  try {
+
+
+    final token = await getToken();
+
+
+    if(token == null || token.isEmpty){
+
+      return {
+        "status":false,
+        "message":"User not logged in"
+      };
+
+    }
+
+
+
+    final response = await http.put(
+
+      Uri.parse(
+        "$baseUrl/ride-request/$requestId/reject"
+      ),
+
+      headers: authHeaders(token),
+
+    );
+
+
+
+
+    return _decodeResponse(response);
+
+
+
+  }catch(e){
+
+    return {
+
+      "status":false,
+
+      "message":
+      "Unable to reject ride",
+
+      "error":
+      e.toString()
+
+    };
+
+  }
+
+
+}
+
+
+// ============================================================
+// GET PAYMENT RECEIPT
+// ============================================================
+
+static Future<Map<String, dynamic>> getPaymentReceipt(
+  dynamic paymentId,
+) async {
+
+  try {
+
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (paymentId == null) {
+      return {
+        "status": false,
+        "message": "Payment ID is required",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/payment/receipt/$paymentId",
+      ),
+      headers: authHeaders(token),
+    );
+
+    return _decodeResponse(response);
+
+  } catch (e) {
+
+    return {
+      "status": false,
+      "message": "Unable to fetch payment receipt",
+      "error": e.toString(),
+    };
+
+  }
+}
+
+
+static Future<Map<String, dynamic>>
+    downloadPaymentReceipt(
+  dynamic paymentId,
+) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (paymentId == null) {
+      return {
+        "status": false,
+        "message": "Payment ID is required",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/payment/receipt/$paymentId/pdf",
+      ),
+      headers: authHeaders(token),
+    );
+
+    if (response.statusCode >= 200 &&
+        response.statusCode < 300) {
+      return {
+        "status": true,
+        "bytes": response.bodyBytes,
+        "content_type":
+            response.headers["content-type"],
+      };
+    }
+
+    return {
+      "status": false,
+      "message": "Unable to download receipt",
+      "http_status": response.statusCode,
+    };
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to download receipt",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// RIDE PAYMENT
+// ============================================================
+
+static Future<Map<String, dynamic>> payRide({
+  required dynamic rideId,
+  required String paymentMethod,
+}) async {
+
+  try {
+
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/payment/pay",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode({
+        "ride_id": rideId,
+        "payment_method": paymentMethod,
+      }),
+    );
+
+    return _decodeResponse(response);
+
+  } catch (e) {
+
+    return {
+      "status": false,
+      "message": "Unable to process payment",
+      "error": e.toString(),
+    };
+
+  }
+}
+
+
+// ============================================================
+// WALLET RIDE PAYMENT
+// ============================================================
+
+static Future<Map<String, dynamic>> walletPayRide({
+  required dynamic rideId,
+}) async {
+
+  try {
+
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/wallet/pay-ride",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode({
+        "ride_id": rideId,
+      }),
+    );
+
+    return _decodeResponse(response);
+
+  } catch (e) {
+
+    return {
+      "status": false,
+      "message": "Unable to process wallet payment",
+      "error": e.toString(),
+    };
+
+  }
+}
+
+// ============================================================
+// CHARGING PAYMENT
+// ============================================================
+
+static Future<Map<String, dynamic>> chargingPayment({
+  required dynamic chargingSessionId,
+  required String paymentMethod,
+}) async {
+
+  try {
+
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (chargingSessionId == null) {
+      return {
+        "status": false,
+        "message": "Charging session ID is required",
+      };
+    }
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/payment/charging",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode({
+        "charging_session_id": chargingSessionId,
+        "payment_method": paymentMethod,
+      }),
+    );
+
+    return _decodeResponse(response);
+
+  } catch (e) {
+
+    return {
+      "status": false,
+      "message": "Unable to process charging payment",
+      "error": e.toString(),
+    };
+  }
+}
+
+// ============================================================
+// GET MY WALLET
+// ============================================================
+
+static Future<Map<String, dynamic>> getWallet() async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/wallet/show",
+      ),
+      headers: authHeaders(token),
+    );
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch wallet",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// ADD MONEY TO WALLET
+// ============================================================
+
+static Future<Map<String, dynamic>> addMoneyToWallet({
+  required double amount,
+}) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (amount <= 0) {
+      return {
+        "status": false,
+        "message": "Amount must be greater than zero",
+      };
+    }
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/wallet/add-money",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode({
+        "amount": amount,
+      }),
+    );
+
+    final data = _decodeResponse(response);
+
+    print(
+      "WALLET ADD MONEY STATUS: ${response.statusCode}",
+    );
+
+    print(
+      "WALLET ADD MONEY RESPONSE: ${response.body}",
+    );
+
+    return data;
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to add money to wallet",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// GET WALLET TRANSACTION HISTORY
+// ============================================================
+
+static Future<Map<String, dynamic>> getWalletHistory() async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+   final response = await http.post(
+  Uri.parse(
+    "$baseUrl/wallet/history",
+  ),
+  headers: authHeaders(token),
+);
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch wallet history",
+      "error": e.toString(),
+    };
+  }
+}
+
   // ============================================================
   // COMMON RESPONSE DECODER
   // ============================================================
@@ -1176,4 +2052,478 @@ class ApiService {
       };
     }
   }
+
+
+// ============================================================
+// GET CHARGING STATIONS
+// ============================================================
+
+static Future<Map<String, dynamic>> getChargingStations() async {
+  try {
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/stations",
+      ),
+      headers: {
+        "Accept": "application/json",
+      },
+    );
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch charging stations",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// GET SINGLE CHARGING STATION
+// ============================================================
+
+static Future<Map<String, dynamic>> getChargingStation(
+  dynamic stationId,
+) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (stationId == null) {
+      return {
+        "status": false,
+        "message": "Station ID is required",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/station/$stationId",
+      ),
+      headers: authHeaders(token),
+    );
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch charging station",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// GET MY VEHICLES
+// ============================================================
+
+static Future<Map<String, dynamic>> getMyVehicles() async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/vehicles",
+      ),
+      headers: authHeaders(token),
+    );
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch vehicles",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// CREATE CHARGING BOOKING
+// ============================================================
+
+static Future<Map<String, dynamic>> createChargingBooking({
+  required dynamic chargingStationId,
+  required dynamic chargingPortId,
+  required dynamic vehicleId,
+  required String bookingDate,
+  required String startTime,
+  required String endTime,
+}) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    final requestBody = {
+      "charging_station_id": chargingStationId,
+      "charging_port_id": chargingPortId,
+      "vehicle_id": vehicleId,
+      "booking_date": bookingDate,
+      "start_time": startTime,
+      "end_time": endTime,
+    };
+
+    print(
+      "========================================",
+    );
+
+    print(
+      "       CHARGING BOOKING REQUEST",
+    );
+
+    print(
+      "========================================",
+    );
+
+    print(
+      "REQUEST BODY:",
+    );
+
+    print(
+      jsonEncode(requestBody),
+    );
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/charging-booking",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode(requestBody),
+    );
+
+    final data = _decodeResponse(response);
+
+    print(
+      "CHARGING BOOKING STATUS: ${response.statusCode}",
+    );
+
+    print(
+      "CHARGING BOOKING RESPONSE:",
+    );
+
+    print(
+      response.body,
+    );
+
+    print(
+      "========================================",
+    );
+
+    return data;
+  } catch (e) {
+    print(
+      "CHARGING BOOKING ERROR: $e",
+    );
+
+    return {
+      "status": false,
+      "message": "Unable to create charging booking",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// GET CHARGING BOOKING
+// ============================================================
+
+static Future<Map<String, dynamic>> getChargingBooking(
+  dynamic bookingId,
+) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (bookingId == null) {
+      return {
+        "status": false,
+        "message": "Charging booking ID is required",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/charging-booking/$bookingId",
+      ),
+      headers: authHeaders(token),
+    );
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch charging booking",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// START CHARGING SESSION
+// ============================================================
+
+static Future<Map<String, dynamic>> startChargingSession({
+  required dynamic chargingBookingId,
+}) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (chargingBookingId == null) {
+      return {
+        "status": false,
+        "message": "Charging booking ID is required",
+      };
+    }
+
+    final requestBody = {
+      "charging_booking_id": chargingBookingId,
+    };
+
+    print(
+      "========================================",
+    );
+
+    print(
+      "       START CHARGING SESSION",
+    );
+
+    print(
+      "========================================",
+    );
+
+    print(
+      "REQUEST BODY:",
+    );
+
+    print(
+      jsonEncode(requestBody),
+    );
+
+    final response = await http.post(
+      Uri.parse(
+        "$baseUrl/charging-session/start",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode(requestBody),
+    );
+
+    final data = _decodeResponse(response);
+
+    print(
+      "CHARGING SESSION START STATUS: ${response.statusCode}",
+    );
+
+    print(
+      "CHARGING SESSION START RESPONSE:",
+    );
+
+    print(
+      response.body,
+    );
+
+    print(
+      "========================================",
+    );
+
+    return data;
+  } catch (e) {
+    print(
+      "START CHARGING SESSION ERROR: $e",
+    );
+
+    return {
+      "status": false,
+      "message": "Unable to start charging session",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// GET CHARGING SESSION
+// ============================================================
+
+static Future<Map<String, dynamic>> getChargingSession(
+  dynamic sessionId,
+) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (sessionId == null) {
+      return {
+        "status": false,
+        "message": "Charging session ID is required",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        "$baseUrl/charging-session/$sessionId",
+      ),
+      headers: authHeaders(token),
+    );
+
+    return _decodeResponse(response);
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch charging session",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+// ============================================================
+// COMPLETE CHARGING SESSION
+// ============================================================
+
+static Future<Map<String, dynamic>> completeChargingSession({
+  required dynamic sessionId,
+  required double unitsConsumed,
+}) async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    if (sessionId == null) {
+      return {
+        "status": false,
+        "message": "Charging session ID is required",
+      };
+    }
+
+    if (unitsConsumed <= 0) {
+      return {
+        "status": false,
+        "message": "Units consumed must be greater than zero",
+      };
+    }
+
+    final requestBody = {
+      "units_consumed": unitsConsumed,
+    };
+
+    print(
+      "========================================",
+    );
+
+    print(
+      "      COMPLETE CHARGING SESSION",
+    );
+
+    print(
+      "========================================",
+    );
+
+    print(
+      "SESSION ID: $sessionId",
+    );
+
+    print(
+      "UNITS CONSUMED: $unitsConsumed",
+    );
+
+    print(
+      "REQUEST BODY:",
+    );
+
+    print(
+      jsonEncode(requestBody),
+    );
+
+    final response = await http.put(
+      Uri.parse(
+        "$baseUrl/charging-session/$sessionId/complete",
+      ),
+      headers: authHeaders(token),
+      body: jsonEncode(requestBody),
+    );
+
+    final data = _decodeResponse(response);
+
+    print(
+      "CHARGING COMPLETE STATUS: ${response.statusCode}",
+    );
+
+    print(
+      "CHARGING COMPLETE RESPONSE:",
+    );
+
+    print(
+      response.body,
+    );
+
+    print(
+      "========================================",
+    );
+
+    return data;
+  } catch (e) {
+    print(
+      "COMPLETE CHARGING SESSION ERROR: $e",
+    );
+
+    return {
+      "status": false,
+      "message": "Unable to complete charging session",
+      "error": e.toString(),
+    };
+  }
+}
+
+
+  
 }

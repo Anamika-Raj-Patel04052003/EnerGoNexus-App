@@ -27,16 +27,18 @@ class _MainNavigationState
 
   int currentIndex = 0;
 
+
+   // ==========================================================
+  // ACTIVE RIDE DATA
+  // ==========================================================
+
+  Map<String,dynamic>? activeRide;
+
   // ==========================================================
   // SCREENS
   // ==========================================================
 
-  final List<Widget> screens = [
-    const HomeScreen(),
-    const BookingScreen(),
-    const WalletScreen(),
-    const ProfileScreen(),
-  ];
+late List<Widget> screens;
 
   // ==========================================================
   // INITIALIZATION
@@ -46,10 +48,21 @@ class _MainNavigationState
   void initState() {
     super.initState();
 
-    // Login ko touch nahi kar rahe.
-    //
-    // MainNavigation open hone ke baad passenger profile
-    // check/create hoga.
+   screens = [
+
+    HomeScreen(
+      activeRide: activeRide,
+    ),
+
+    const BookingScreen(),
+
+    const WalletScreen(),
+
+    const ProfileScreen(),
+
+  ];
+
+
     _preparePassengerProfile();
   }
 
@@ -144,6 +157,8 @@ class _MainNavigationState
           "PASSENGER PROFILE: READY",
         );
 
+        await checkActiveRide();
+
         print("========================================");
 
         return;
@@ -186,6 +201,96 @@ class _MainNavigationState
       );
     }
   }
+
+
+  // ==========================================================
+// CHECK ACTIVE RIDE
+// ==========================================================
+
+Future<void> checkActiveRide() async {
+
+  try {
+
+    final passengerId =
+        await ApiService.getPassengerId();
+
+
+    if(passengerId == null){
+      print("PASSENGER ID NOT FOUND");
+      return;
+    }
+
+
+    final response =
+        await ApiService.getPassengerRides(
+          passengerId,
+        );
+
+
+    if(response["status"] != true){
+      print(
+        "ACTIVE RIDE CHECK FAILED"
+      );
+      return;
+    }
+
+
+    final rides =
+        response["rides"];
+
+
+    if(rides is! List){
+      return;
+    }
+
+
+    for(final ride in rides){
+
+      if(
+        ride["ride_status"] == "Pending" ||
+        ride["ride_status"] == "Accepted" ||
+        ride["ride_status"] == "Driver Arrived" ||
+        ride["ride_status"] == "Started"
+      ){
+
+        setState((){
+
+          activeRide =
+              Map<String,dynamic>.from(ride);
+
+              screens[0] = HomeScreen(
+    activeRide: activeRide,
+  );
+
+        });
+
+
+        print(
+          "ACTIVE RIDE FOUND: ${ride["id"]}"
+        );
+
+
+        return;
+      }
+
+    }
+
+
+    print(
+      "NO ACTIVE RIDE"
+    );
+
+
+  }
+  catch(e){
+
+    print(
+      "CHECK ACTIVE RIDE ERROR: $e"
+    );
+
+  }
+
+}
 
   // ==========================================================
   // BUILD

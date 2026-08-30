@@ -50,7 +50,9 @@ class _BookingScreenState extends State<BookingScreen> {
 
   double distanceKm = 5;
 
+int serviceTypeId = 1; // Ride
 
+int vehicleCategoryId = 1; // Default Bike
 
   bool isLoading = false;
 
@@ -386,7 +388,9 @@ class _BookingScreenState extends State<BookingScreen> {
 
         calculateFare(),
 
+        serviceTypeId: serviceTypeId,
 
+vehicleCategoryId: vehicleCategoryId,
 
       );
 
@@ -407,62 +411,65 @@ class _BookingScreenState extends State<BookingScreen> {
       });
 
 
+if(response["status"] == true){
 
 
+  final ride = response["ride"];
 
 
-
-      if(response["status"] == true){
-
-
-
-
-
-        Navigator.pushReplacement(
+  final assignResponse =
+      await ApiService.autoAssignRide(
+        ride["id"]
+      );
 
 
-
-          context,
-
+  if(assignResponse["status"] == true){
 
 
-          MaterialPageRoute(
+    Navigator.pushReplacement(
+
+      context,
+
+      MaterialPageRoute(
+
+        builder:(context)=>
+
+        RideConfirmationScreen(
+
+          rideData: assignResponse["ride"],
+
+        ),
+
+      ),
+
+    );
 
 
-
-            builder:(context)=>
-
-
-
-            RideConfirmationScreen(
+  }
+  else{
 
 
+    ScaffoldMessenger.of(context)
+    .showSnackBar(
 
-              rideData:
+      SnackBar(
 
-              response["ride"],
+        content: Text(
+          assignResponse["message"]
+          ??
+          "Driver not found"
+        ),
 
+      ),
 
-
-            ),
-
-
-
-          ),
-
-
-
-        );
+    );
 
 
+  }
 
 
-
-      }
-
+}
       else{
-
-
 
         ScaffoldMessenger.of(context)
             .showSnackBar(
@@ -1422,7 +1429,31 @@ class _BookingScreenState extends State<BookingScreen> {
 
 
 
-              selectedVehicle = value;
+setState(() {
+
+  selectedVehicle = value;
+
+  if (value == "Bike") {
+    vehicleCategoryId = 1;
+  }
+  else if (value == "Auto") {
+    vehicleCategoryId = 2;
+  }
+  else if (value == "Mini EV") {
+    // Backend category 3 = Car
+    vehicleCategoryId = 3;
+  }
+  else if (value == "Sedan EV") {
+    // Backend category 4 = Premium
+    vehicleCategoryId = 4;
+  }
+  else if (value == "Premium EV") {
+    // Backend currently has no separate Premium EV category.
+    // Use Premium category.
+    vehicleCategoryId = 4;
+  }
+
+});
 
 
 

@@ -5,7 +5,7 @@ import '../../widgets/animated_ev_background.dart';
 import '../../services/api_service.dart';
 import '../main/main_navigation.dart';
 import 'register_screen.dart';
-
+import '../driver/driver_main_navigation.dart';
 
 
 class LoginScreen extends StatefulWidget {
@@ -111,35 +111,52 @@ class _LoginScreenState extends State<LoginScreen> {
 
     });
 
+if(response["token"] != null){
+
+  final role = response["user"]?["role"];
 
 
-
-    if(response["token"] != null){
-
+  if(role == "driver"){
 
 
-      Navigator.pushReplacement(
+    Navigator.pushReplacement(
+
+      context,
+
+      MaterialPageRoute(
+
+        builder:(context)=>
+        const DriverMainNavigation(),
+
+      ),
+
+    );
 
 
-        context,
+  }
+
+  else{
 
 
-        MaterialPageRoute(
+    Navigator.pushReplacement(
+
+      context,
+
+      MaterialPageRoute(
+
+        builder:(context)=>
+
+        const MainNavigation(),
+
+      ),
+
+    );
 
 
-          builder:(context)=>
-
-          const MainNavigation()
+  }
 
 
-        ),
-
-
-      );
-
-
-
-    }
+}
 
     else{
 
