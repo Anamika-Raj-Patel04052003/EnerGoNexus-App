@@ -1,961 +1,242 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_colors.dart';
-import '../../services/api_service.dart';
-import 'add_money_screen.dart';
-import 'wallet_transaction_history_screen.dart';
+import '../../services/energo_unified_service.dart';
+import '../../services/razorpay_service.dart';
 
 class WalletScreen extends StatefulWidget {
-  const WalletScreen({
-    super.key,
-  });
+  const WalletScreen({super.key});
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  bool loading = true;
-
-  double balance = 0;
-  double totalRecharge = 0;
-  double totalSpent = 0;
-  double cashbackEarned = 0;
-
-  List<Map<String, dynamic>> transactions = [];
+  final _amountCtrl = TextEditingController(text: "500");
+  String _selectedFilter = "ALL";
+  bool _isProcessing = false;
 
   @override
-  void initState() {
-    super.initState();
-    loadWallet();
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
   }
 
-  // ============================================================
-  // LOAD WALLET
-  // ============================================================
+  void _topUpViaRazorpay(double amount) async {
+    setState(() => _isProcessing = true);
 
-  Future<void> loadWallet() async {
-    if (!mounted) return;
+    final res = await RazorpayPaymentService.openCheckout(
+      context: context,
+      amount: amount,
+      purpose: "EnerGo Wallet Credit Top-Up",
+    );
 
-    setState(() {
-      loading = true;
-    });
-
-    try {
-      final response = await ApiService.getWalletHistory();
+    if (res != null && res['status'] == 'SUCCESS') {
+      EnerGoUnifiedService().topUpWallet(amount, "Razorpay Online Top-Up (${res['payment_id'] ?? 'pay_rzp_topup'})");
 
       if (!mounted) return;
-
-      if (response["status"] == true) {
-        final summary = response["wallet_summary"];
-
-        if (summary is Map) {
-          balance =
-              double.tryParse(
-                summary["current_balance"]?.toString() ?? "",
-              ) ??
-              0;
-
-          totalRecharge =
-              double.tryParse(
-                summary["total_recharge"]?.toString() ?? "",
-              ) ??
-              0;
-
-          totalSpent =
-              double.tryParse(
-                summary["total_spent"]?.toString() ?? "",
-              ) ??
-              0;
-
-          cashbackEarned =
-              double.tryParse(
-                summary["cashback_earned"]?.toString() ?? "",
-              ) ??
-              0;
-        }
-
-        final recent = response["recent_transactions"];
-
-        if (recent is List) {
-          transactions = recent
-              .whereType<Map>()
-              .map(
-                (item) =>
-                    Map<String, dynamic>.from(item),
-              )
-              .toList();
-        } else {
-          transactions = [];
-        }
-      } else {
-        transactions = [];
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              response["message"] ??
-                  "Unable to load wallet",
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Unable to load wallet: $e",
-          ),
-        ),
+        SnackBar(content: Text("✅ ₹ ${amount.toInt()} added to EnerGo Wallet!"), backgroundColor: const Color(0xFF00E676)),
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          loading = false;
-        });
-      }
     }
+    setState(() => _isProcessing = false);
   }
-
-  // ============================================================
-  // OPEN ADD MONEY
-  // ============================================================
-
-  Future<void> openAddMoney() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const AddMoneyScreen(),
-      ),
-    );
-
-    if (!mounted) return;
-
-    if (result == true) {
-      await loadWallet();
-    }
-  }
-
-  // ============================================================
-  // MONEY FORMAT
-  // ============================================================
-
-  String money(dynamic value) {
-    final amount =
-        double.tryParse(
-          value?.toString() ?? "",
-        ) ??
-        0;
-
-    return amount.toStringAsFixed(2);
-  }
-
-  // ============================================================
-  // TRANSACTION AMOUNT
-  // ============================================================
-
-  String transactionAmount(
-    Map<String, dynamic> transaction,
-  ) {
-    final type =
-        transaction["type"]
-            ?.toString()
-            .toLowerCase() ??
-        "";
-
-    final amount = money(
-      transaction["amount"],
-    );
-
-    if (type == "credit") {
-      return "+ ₹$amount";
-    }
-
-    return "- ₹$amount";
-  }
-
-  // ============================================================
-  // TRANSACTION COLOR
-  // ============================================================
-
-  Color transactionColor(
-    Map<String, dynamic> transaction,
-  ) {
-    final type =
-        transaction["type"]
-            ?.toString()
-            .toLowerCase() ??
-        "";
-
-    if (type == "credit") {
-      return Colors.greenAccent;
-    }
-
-    return Colors.redAccent;
-  }
-
-  // ============================================================
-  // TRANSACTION ICON
-  // ============================================================
-
-  IconData transactionIcon(
-    Map<String, dynamic> transaction,
-  ) {
-    final description =
-        transaction["description"]
-            ?.toString()
-            .toLowerCase() ??
-        "";
-
-    final type =
-        transaction["type"]
-            ?.toString()
-            .toLowerCase() ??
-        "";
-
-    if (description.contains("cashback")) {
-      return Icons.local_offer;
-    }
-
-    if (description.contains("recharge")) {
-      return Icons.add_circle_outline;
-    }
-
-    if (description.contains("ride")) {
-      return Icons.directions_car;
-    }
-
-    if (description.contains("charging")) {
-      return Icons.ev_station;
-    }
-
-    if (type == "debit") {
-      return Icons.arrow_upward;
-    }
-
-    return Icons.arrow_downward;
-  }
-
-  // ============================================================
-  // BUILD
-  // ============================================================
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor:
-          AppColors.background,
+    final service = EnerGoUnifiedService();
 
-      appBar: AppBar(
-        backgroundColor:
-            Colors.transparent,
-        elevation: 0,
-        title: const Text(
-          "My Wallet",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
+    return AnimatedBuilder(
+      animation: service,
+      builder: (context, child) {
+        final transactions = service.transactions;
+        final filteredList = transactions.where((t) {
+          if (_selectedFilter == "CREDIT") return t['type'] == "CREDIT";
+          if (_selectedFilter == "DEBIT") return t['type'] == "DEBIT";
+          return true;
+        }).toList();
+
+        return Scaffold(
+          backgroundColor: const Color(0xFF080E1A),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF10192B),
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: const Text("EnerGo Cash & 5% Cashback", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ),
-        ),
-      ),
-
-      body: loading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : RefreshIndicator(
-              onRefresh: loadWallet,
-              child: SingleChildScrollView(
-                physics:
-                    const AlwaysScrollableScrollPhysics(),
-                padding:
-                    const EdgeInsets.all(20),
-
-                child: Column(
-                  children: [
-
-                    // ==================================================
-                    // BALANCE CARD
-                    // ==================================================
-
-                    Container(
-                      width: double.infinity,
-                      padding:
-                          const EdgeInsets.all(25),
-
-                      decoration:
-                          BoxDecoration(
-                        color: AppColors.card,
-                        borderRadius:
-                            BorderRadius.circular(25),
-                        border: Border.all(
-                          color: AppColors
-                              .primaryGreen
-                              .withValues(
-                            alpha: .15,
-                          ),
-                        ),
-                      ),
-
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // 1. WALLET BALANCE CARD
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF131D31),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF00E676), width: 1.2),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF131D31), Color(0x2600E676)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            "Available Balance",
-                            style: TextStyle(
-                              color:
-                                  Colors.white60,
-                              fontSize: 16,
-                            ),
-                          ),
-
-                          const SizedBox(
-                            height: 10,
-                          ),
-
-                          Text(
-                            "₹ ${money(balance)}",
-                            style:
-                                const TextStyle(
-                              color: Colors.white,
-                              fontSize: 35,
-                              fontWeight:
-                                  FontWeight.bold,
-                            ),
-                          ),
-
-                          const SizedBox(
-                            height: 8,
-                          ),
-
-                          Text(
-                            "Cashback earned: ₹${money(cashbackEarned)}",
-                            style:
-                                const TextStyle(
-                              color:
-                                  Colors.greenAccent,
-                              fontSize: 12,
-                              fontWeight:
-                                  FontWeight.w600,
-                            ),
-                          ),
-
-                          const SizedBox(
-                            height: 20,
-                          ),
-
-                          SizedBox(
-                            width: double.infinity,
-                            child:
-                                ElevatedButton(
-                              onPressed:
-                                  openAddMoney,
-
-                              style:
-                                  ElevatedButton
-                                      .styleFrom(
-                                backgroundColor:
-                                    AppColors
-                                        .primaryGreen,
-                                foregroundColor:
-                                    Colors.black,
-                                shape:
-                                    RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(
-                                    18,
-                                  ),
-                                ),
-                              ),
-
-                              child:
-                                  const Text(
-                                "ADD MONEY",
-                                style:
-                                    TextStyle(
-                                  fontWeight:
-                                      FontWeight.bold,
-                                ),
-                              ),
-                            ),
+                          const Text("Available EnerGo Credits", style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(color: const Color(0x2600E676), borderRadius: BorderRadius.circular(6)),
+                            child: const Text("⚡ 5% Cashback Active", style: TextStyle(color: Color(0xFF00E676), fontSize: 9.5, fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 4),
+                      Text("₹ ${service.walletBalance.toStringAsFixed(2)}", style: const TextStyle(color: Color(0xFF00E676), fontSize: 30, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text("Total Lifetime Cashback Earned: ₹ ${(service.walletBalance * 0.28).toStringAsFixed(2)}", style: const TextStyle(color: Color(0xFF00F0FF), fontSize: 11)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
 
-                    const SizedBox(
-                      height: 25,
-                    ),
+                // 2. QUICK RECHARGE TILES
+                const Text("Quick Add Money (Razorpay Gateway)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                const SizedBox(height: 10),
 
-                    // ==================================================
-                    // STATISTICS
-                    // ==================================================
+                Row(
+                  children: [200.0, 500.0, 1000.0, 2000.0].map((amt) {
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () => _topUpViaRazorpay(amt),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF131D31),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFF00E676).withOpacity(0.4)),
+                          ),
+                          child: Center(
+                            child: Text("+₹${amt.toInt()}", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12)),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
 
+                // 3. CASHBACK PROMO CARD
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0x26FFB703),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFFFB703)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.stars, color: Color(0xFFFFB703), size: 28),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("5% Auto-Cashback on All Services!", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5)),
+                            Text("Rides, Fast Charging, Parking & Rest Lounges automatically credit 5% back into your wallet.", style: TextStyle(color: Colors.white70, fontSize: 10.5)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // 4. TRANSACTION HISTORY
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Transaction Ledger", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                     Row(
                       children: [
-                        Expanded(
-                          child:
-                              walletStatCard(
-                            title: "Recharge",
-                            value:
-                                "₹${money(totalRecharge)}",
-                            icon:
-                                Icons.add_circle,
-                          ),
-                        ),
-
-                        const SizedBox(
-                          width: 10,
-                        ),
-
-                        Expanded(
-                          child:
-                              walletStatCard(
-                            title: "Spent",
-                            value:
-                                "₹${money(totalSpent)}",
-                            icon:
-                                Icons.remove_circle,
-                          ),
-                        ),
-
-                        const SizedBox(
-                          width: 10,
-                        ),
-
-                        Expanded(
-                          child:
-                              walletStatCard(
-                            title: "Cashback",
-                            value:
-                                "₹${money(cashbackEarned)}",
-                            icon:
-                                Icons.local_offer,
-                          ),
-                        ),
+                        _filterTab("ALL"),
+                        _filterTab("CREDIT"),
+                        _filterTab("DEBIT"),
                       ],
-                    ),
-
-                    const SizedBox(
-                      height: 30,
-                    ),
-
-                    // ==================================================
-                    // PAYMENT METHODS
-                    // ==================================================
-
-                    sectionTitle(
-                      "Payment Methods",
-                    ),
-
-                    const SizedBox(
-                      height: 15,
-                    ),
-
-                    walletTile(
-                      icon: Icons
-                          .account_balance_wallet,
-                      title:
-                          "Wallet Balance",
-                      subtitle:
-                          "Use wallet for rides and charging",
-                    ),
-
-                    walletTile(
-                      icon: Icons.payment,
-                      title:
-                          "Online Payment",
-                      subtitle:
-                          "UPI / Card / Net Banking",
-                    ),
-
-                    walletTile(
-                      icon: Icons.money,
-                      title:
-                          "Cash Payment",
-                      subtitle:
-                          "Pay directly where cash is supported",
-                    ),
-
-                    const SizedBox(
-                      height: 30,
-                    ),
-
-                    // ==================================================
-                    // RECENT TRANSACTIONS
-                    // ==================================================
-
-                    Align(
-                      alignment:
-                          Alignment.centerLeft,
-                      child: Text(
-                        "Recent Transactions",
-                        style:
-                            const TextStyle(
-                          fontSize: 20,
-                          fontWeight:
-                              FontWeight.bold,
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(
-                      height: 15,
-                    ),
-
-                    if (transactions.isEmpty)
-                      emptyTransactions()
-                    else
-                      ...transactions
-                          .take(5)
-                          .map(
-                            (transaction) =>
-                                transactionCard(
-                              transaction,
-                            ),
-                          ),
-
-                    const SizedBox(
-                      height: 20,
-                    ),
-
-                    // ==================================================
-                    // HISTORY
-                    // ==================================================
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 55,
-                      child:
-                          ElevatedButton(
-                     onPressed: () async {
-  await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) =>
-          const WalletTransactionHistoryScreen(),
-    ),
-  );
-
-  if (!mounted) return;
-
-  await loadWallet();
-},
-
-                        style:
-                            ElevatedButton
-                                .styleFrom(
-                          backgroundColor:
-                              Colors.white10,
-                          foregroundColor:
-                              Colors.white,
-                          shape:
-                              RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius
-                                    .circular(
-                              20,
-                            ),
-                          ),
-                        ),
-
-                        child: const Text(
-                          "VIEW TRANSACTION HISTORY",
-                          style:
-                              TextStyle(
-                            fontWeight:
-                                FontWeight.bold,
-                          ),
-                        ),
-                      ),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 10),
+
+                ...filteredList.map((tx) {
+                  final isCredit = tx['type'] == "CREDIT";
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131D31),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: (isCredit ? const Color(0xFF00E676) : Colors.redAccent).withOpacity(0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: isCredit ? const Color(0xFF00E676) : Colors.redAccent, size: 16),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(tx['title'] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                Text("${tx['time']} • ${tx['id']}", style: const TextStyle(color: Colors.white38, fontSize: 9.5)),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Text(
+                          "${isCredit ? '+' : '-'}₹ ${(tx['amount'] as num).toInt()}",
+                          style: TextStyle(color: isCredit ? const Color(0xFF00E676) : Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
             ),
+          ),
+        );
+      },
     );
   }
 
-  // ============================================================
-  // STAT CARD
-  // ============================================================
-
-  Widget walletStatCard({
-    required String title,
-    required String value,
-    required IconData icon,
-  }) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 16,
-        horizontal: 8,
-      ),
-
-      decoration:
-          BoxDecoration(
-        color: AppColors.card,
-        borderRadius:
-            BorderRadius.circular(18),
-      ),
-
-      child: Column(
-        children: [
-          Icon(
-            icon,
-            color:
-                AppColors.primaryGreen,
-            size: 22,
-          ),
-
-          const SizedBox(
-            height: 8,
-          ),
-
-          Text(
-            value,
-            textAlign:
-                TextAlign.center,
-            style:
-                const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight:
-                  FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(
-            height: 4,
-          ),
-
-          Text(
-            title,
-            textAlign:
-                TextAlign.center,
-            style:
-                const TextStyle(
-              color: Colors.white54,
-              fontSize: 9,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // SECTION TITLE
-  // ============================================================
-
-  Widget sectionTitle(
-    String title,
-  ) {
-    return Align(
-      alignment:
-          Alignment.centerLeft,
-      child: Text(
-        title,
-        style:
-            const TextStyle(
-          fontSize: 20,
-          fontWeight:
-              FontWeight.bold,
+  Widget _filterTab(String label) {
+    final isSel = _selectedFilter == label;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedFilter = label),
+      child: Container(
+        margin: const EdgeInsets.only(left: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSel ? const Color(0xFF00E676) : const Color(0xFF131D31),
+          borderRadius: BorderRadius.circular(6),
         ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // PAYMENT METHOD TILE
-  // ============================================================
-
-  Widget walletTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return Container(
-      margin:
-          const EdgeInsets.only(
-        bottom: 15,
-      ),
-
-      padding:
-          const EdgeInsets.all(18),
-
-      decoration:
-          BoxDecoration(
-        color: AppColors.card,
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-
-      child: Row(
-        children: [
-          Container(
-            height: 52,
-            width: 52,
-
-            decoration:
-                BoxDecoration(
-              color:
-                  AppColors.primaryGreen
-                      .withValues(
-                alpha: .12,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                15,
-              ),
-            ),
-
-            child: Icon(
-              icon,
-              color:
-                  AppColors.primaryGreen,
-              size: 28,
-            ),
-          ),
-
-          const SizedBox(
-            width: 15,
-          ),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-
-              children: [
-                Text(
-                  title,
-                  style:
-                      const TextStyle(
-                    fontSize: 17,
-                    fontWeight:
-                        FontWeight.bold,
-                  ),
-                ),
-
-                const SizedBox(
-                  height: 4,
-                ),
-
-                Text(
-                  subtitle,
-                  style:
-                      const TextStyle(
-                    color:
-                        Colors.white60,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // TRANSACTION CARD
-  // ============================================================
-
-  Widget transactionCard(
-    Map<String, dynamic> transaction,
-  ) {
-    final description =
-        transaction["description"]
-            ?.toString() ??
-        "Transaction";
-
-    final date =
-        transaction["date"]
-            ?.toString() ??
-        "";
-
-    final amount =
-        transactionAmount(
-      transaction,
-    );
-
-    final color =
-        transactionColor(
-      transaction,
-    );
-
-    final icon =
-        transactionIcon(
-      transaction,
-    );
-
-    return Container(
-      margin:
-          const EdgeInsets.only(
-        bottom: 15,
-      ),
-
-      padding:
-          const EdgeInsets.all(18),
-
-      decoration:
-          BoxDecoration(
-        color: AppColors.card,
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-
-      child: Row(
-        children: [
-          Container(
-            height: 45,
-            width: 45,
-
-            decoration:
-                BoxDecoration(
-              color: color.withValues(
-                alpha: .10,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                14,
-              ),
-            ),
-
-            child: Icon(
-              icon,
-              color: color,
-              size: 22,
-            ),
-          ),
-
-          const SizedBox(
-            width: 12,
-          ),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-
-              children: [
-                Text(
-                  description,
-                  maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                    color:
-                        Colors.white,
-                    fontWeight:
-                        FontWeight.bold,
-                  ),
-                ),
-
-                const SizedBox(
-                  height: 4,
-                ),
-
-                Text(
-                  date,
-                  style:
-                      const TextStyle(
-                    color:
-                        Colors.white54,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(
-            width: 10,
-          ),
-
-          Text(
-            amount,
-            style:
-                TextStyle(
-              color: color,
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // EMPTY TRANSACTIONS
-  // ============================================================
-
-  Widget emptyTransactions() {
-    return Container(
-      width: double.infinity,
-
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 35,
-        horizontal: 20,
-      ),
-
-      decoration:
-          BoxDecoration(
-        color: AppColors.card,
-        borderRadius:
-            BorderRadius.circular(20),
-      ),
-
-      child: const Column(
-        children: [
-          Icon(
-            Icons.receipt_long_outlined,
-            color: Colors.white30,
-            size: 42,
-          ),
-
-          SizedBox(
-            height: 12,
-          ),
-
-          Text(
-            "No transactions yet",
-            style:
-                TextStyle(
-              color:
-                  Colors.white70,
-              fontWeight:
-                  FontWeight.bold,
-            ),
-          ),
-
-          SizedBox(
-            height: 5,
-          ),
-
-          Text(
-            "Your wallet activity will appear here.",
-            textAlign:
-                TextAlign.center,
-            style:
-                TextStyle(
-              color:
-                  Colors.white38,
-              fontSize: 12,
-            ),
-          ),
-        ],
+        child: Text(label, style: TextStyle(color: isSel ? Colors.black : Colors.white54, fontSize: 9.5, fontWeight: FontWeight.bold)),
       ),
     );
   }

@@ -1,420 +1,232 @@
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_colors.dart';
-import '../../widgets/animated_ev_background.dart';
-
-import '../../widgets/home/premium_header.dart';
-import '../../widgets/home/ride_search_card.dart';
+import '../../widgets/home/ai_suggestion_card.dart';
 import '../../widgets/home/service_grid.dart';
 import '../../widgets/home/wallet_summary_card.dart';
-import '../../widgets/home/active_trip_card.dart';
-import '../../widgets/home/charging_station_card.dart';
-import '../../widgets/home/ai_suggestion_card.dart';
-
-import '../../widgets/section_title.dart';
-
-import '../../services/api_service.dart';
-
+import '../charging/charging_booking_screen.dart';
+import '../profile/profile_screen.dart';
 import '../ride/booking_screen.dart';
 import '../wallet/wallet_screen.dart';
-import '../ride/active_ride_screen.dart';
-
 
 class HomeScreen extends StatefulWidget {
-final Map<String,dynamic>? activeRide;
-  const HomeScreen({
-    super.key,
-    this.activeRide,
-  });
+  const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() =>
-      _HomeScreenState();
-
+  State<HomeScreen> createState() => _HomeScreenState();
 }
+
 class _HomeScreenState extends State<HomeScreen> {
-  String userName = "EnerGo User";
-  double walletBalance = 0;
-  String rideStatus = "No active ride";
-
-
-String driverName = "No Driver Assigned";
-
-
-String eta = "--";
-
-
-
-  bool loading = true;
-
- @override
-void initState(){
-
-super.initState();
-
-
-if(widget.activeRide != null){
-
-  rideStatus =
-      widget.activeRide!["ride_status"] ?? "Pending";
-
-
-  driverName =
-      widget.activeRide!["driver"]?["full_name"] ??
-      "Searching Driver";
-
-}
-
-
-loadHomeData();
-
-}
-
-  Future<void> loadHomeData() async {
-
-
-    try{
-
-
-      var profile =
-      await ApiService.getProfile();
-
-
-
-      if(profile["user"] != null){
-
-
-        userName =
-        profile["user"]["full_name"] ??
-            "EnerGo User";
-
-
-      }
-
-      /*
-      Wallet API integration later:
-
-      var wallet =
-      await ApiService.getWallet();
-
-
-      walletBalance =
-      wallet["balance"];
-
-      */
-
-      setState((){
-
-
-        loading = false;
-
-      });
-
-    }
-
-    catch(e){
-
-
-      setState((){
-
-
-        loading = false;
-
-      });
-
-      debugPrint(
-          e.toString()
-      );
-
-    }
-  }
+  int _currentTab = 0;
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> pages = [
+      _buildHomeDashboard(context),
+      const BookingScreen(),
+      const ChargingBookingScreen(),
+      const WalletScreen(),
+      const ProfileScreen(),
+    ];
 
     return Scaffold(
-      body:
-
-      AnimatedEVBackground(
-
-        child:
-        SafeArea(
-
-          child:
-
-          loading
-              ?
-
-          const Center(
-
-            child:
-
-            CircularProgressIndicator(
-
-              color:
-              AppColors.primaryGreen,
-
-            ),
-
-          )
-
-              :
-
-          SingleChildScrollView(
-
-            padding:
-
-            const EdgeInsets.all(20),
-
-            child:
-
-            Column(
-
-              crossAxisAlignment:
-
-              CrossAxisAlignment.start,
-
-              children: [
-
-                // HEADER
-                PremiumHeader(
-
-                  name:userName,
-
-                  location:
-                  "Bengaluru, India",
-
-                ),
-
-                const SizedBox(height:28),
-
-                // RIDE SEARCH
-                RideSearchCard(
-
-                  onTap:(){
-
-                    Navigator.push(
-
-
-                      context,
-
-                      MaterialPageRoute(
-
-                        builder:(context)=>
-
-                        const BookingScreen(),
-
-                      ),
-
-                    );
-                  },
-                ),
-
-                const SizedBox(height:30),
-
-                const SectionTitle(
-
-                  title:
-                  "Quick Services",
-
-                ),
-
-                const SizedBox(height:15),
-
-                ServiceGrid(
-
-                  onRideTap:(){
-
-
-                    Navigator.push(
-
-                      context,
-
-                      MaterialPageRoute(
-
-                        builder:(context)=>
-
-                        const BookingScreen(),
-
-                      ),
-
-                    );
-
-
-                  },
-
-                  onChargingTap:(){
-
-                  },
-
-                  onParcelTap:(){
-
-                  },
-
-                  onFacilityTap:(){
-                  },
-
-                ),
-
-                const SizedBox(height:30),
-
-                const SectionTitle(
-
-                  title:
-                  "Wallet",
-
-                ),
-
-
-                const SizedBox(height:15),
-
-                WalletSummaryCard(
-
-                  balance:
-
-                  walletBalance,
-
-                  onAddMoney:(){
-
-                    Navigator.push(
-
-                      context,
-
-                      MaterialPageRoute(
-
-                        builder:(context)=>
-
-                        const WalletScreen(),
-
-                      ),
-
-                    );
-
-                  },
-
-                  onHistory:(){
-
-                  },
-
-                ),
-
-                const SizedBox(height:30),
-
-                const SectionTitle(
-
-                  title:
-                  "Current Ride",
-
-                ),
-
-                const SizedBox(height:15),
-
-               ActiveTripCard(
-
- status:
- rideStatus,
-
-
- driverName:
- driverName,
-
-
- eta:
- eta,
-                  onTrackRide:(){
-
-  if(widget.activeRide != null){
-
-    Navigator.push(
-
-      context,
-
-      MaterialPageRoute(
-
-        builder:(context)=>
-
-        ActiveRideScreen(
-
-          rideData: widget.activeRide!,
-
-        ),
-
-      ),
-
-    );
-
-  }
-
-},
-
-                ),
-
-                const SizedBox(height:30),
-
-                const SectionTitle(
-
-                  title:
-
-                  "Nearby EV Stations",
-
-                ),
-
-                const SizedBox(height:15),
-
-                ChargingStationCard(
-
-                  stationName:
-
-                  "EnerGo Fast Charging Hub",
-
-                  distance:
-
-                  "2.5 km away",
-
-                  ports:
-
-                  "4 Ports Available",
-
-                  chargingType:
-
-                  "Fast Charging",
-
-                  price:
-
-                  "₹12/unit",
-
-                  onTap:(){
-
-                  },
-                ),
-
-                const SizedBox(height:30),
-
-                const SectionTitle(
-
-                  title:
-
-                  "AI Smart Assistant",
-
-                ),
-                const SizedBox(height:15),
-
-                AISuggestionCard(
-
-                  onTap:(){
-                  },
-
-                ),
-                const SizedBox(height:30),
-
-              ],
-
+      backgroundColor: const Color(0xFF080E1A),
+      body: Stack(
+        children: [
+          // 1. SCROLLABLE CONTENT
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 72),
+              child: IndexedStack(
+                index: _currentTab,
+                children: pages,
+              ),
             ),
           ),
+
+          // 2. 🌟 100% FIXED FLOATING 5-TAB FOOTER
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 72,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF10192B),
+                border: Border(
+                  top: BorderSide(color: const Color(0xFF00E676).withOpacity(0.4), width: 1.5),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.9),
+                    blurRadius: 20,
+                    offset: const Offset(0, -6),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildTabItem(0, Icons.home_outlined, Icons.home, "Home"),
+                  _buildTabItem(1, Icons.directions_car_outlined, Icons.directions_car, "Rides"),
+                  _buildTabItem(2, Icons.ev_station_outlined, Icons.ev_station, "Charging"),
+                  _buildTabItem(3, Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, "Wallet"),
+                  _buildTabItem(4, Icons.person_outline, Icons.person, "Profile"),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabItem(int index, IconData icon, IconData activeIcon, String label) {
+    final isSelected = _currentTab == index;
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _currentTab = index),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isSelected ? activeIcon : icon,
+              color: isSelected ? const Color(0xFF00E676) : Colors.white38,
+              size: isSelected ? 26 : 22,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? const Color(0xFF00E676) : Colors.white38,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
+  Widget _buildHomeDashboard(BuildContext context) {
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        children: [
+          // VIP PASSENGER HEADER
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF00E676), width: 2),
+                    ),
+                    child: const CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Color(0xFF131D31),
+                      child: Icon(Icons.person, color: Color(0xFF00E676), size: 24),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text("Anamika Choudhary", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                          SizedBox(width: 6),
+                          Text("⭐ 4.9", style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      Text("📍 Bhopal SuperHub Zone • 🌿 142 kg CO2 Saved", style: TextStyle(color: Color(0xFF00E676), fontSize: 10.5, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                decoration: const BoxDecoration(color: Color(0xFF131D31), shape: BoxShape.circle),
+                child: IconButton(
+                  icon: const Icon(Icons.notifications_none, color: Colors.white, size: 20),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("🔔 5% Cashback Credited on your recent booking!"), backgroundColor: Color(0xFF00E676)),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
 
+          // WHERE TO GO SEARCH BAR
+          GestureDetector(
+            onTap: () => setState(() => _currentTab = 1),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF131D31),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFF00E676).withOpacity(0.35)),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF131D31), Color(0x1A00E676)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(color: Color(0x2600E676), shape: BoxShape.circle),
+                    child: const Icon(Icons.near_me, color: Color(0xFF00E676), size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Where do you want to go?", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                        Text("Book EV Bike, Auto, Pink Cab, Comfort or Cargo", style: TextStyle(color: Colors.white54, fontSize: 10.5)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(color: Color(0xFF00E676), shape: BoxShape.circle),
+                    child: const Icon(Icons.arrow_forward, color: Colors.black, size: 16),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // WALLET CARD
+          const WalletSummaryCard(),
+          const SizedBox(height: 20),
+
+          // AMENITIES
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("SuperHub Amenities & Services", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+              Text("⚡ All Live", style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const ServiceGrid(),
+          const SizedBox(height: 20),
+
+          // AI MOBILITY
+          const AiSuggestionCard(),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
 }

@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -2079,6 +2079,46 @@ static Future<Map<String, dynamic>> getChargingStations() async {
   }
 }
 
+
+// ============================================================
+// GET CHARGING PORTS
+// ============================================================
+
+static Future<Map<String, dynamic>> getChargingPorts() async {
+  try {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      return {
+        "status": false,
+        "message": "User is not logged in",
+      };
+    }
+
+    final response = await http.get(
+      Uri.parse("$baseUrl/ports"),
+      headers: authHeaders(token),
+    );
+
+    final data = _decodeResponse(response);
+
+    debugPrint(
+      "CHARGING PORTS STATUS: ${response.statusCode}",
+    );
+
+    debugPrint(
+      "CHARGING PORTS RESPONSE: ${response.body}",
+    );
+
+    return data;
+  } catch (e) {
+    return {
+      "status": false,
+      "message": "Unable to fetch charging ports",
+      "error": e.toString(),
+    };
+  }
+}
 
 // ============================================================
 // GET SINGLE CHARGING STATION

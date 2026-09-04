@@ -2,350 +2,102 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../screens/charging/charging_booking_screen.dart';
+import '../../screens/facility/facility_booking_screen.dart';
 
+class AiSuggestionCard extends StatelessWidget {
+  const AiSuggestionCard({super.key});
 
+  void _openAiDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(LucideIcons.bot, color: Color(0xFF00F0FF), size: 24),
+                SizedBox(width: 10),
+                Text("EnerGo AI Assistant", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+            const Divider(color: Colors.white12, height: 20),
+            _aiTile("⚡ Bhopal Central has 4 vacant 120kW Fast DC Ports.", () {
+              Navigator.pop(ctx);
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChargingBookingScreen()));
+            }),
+            const SizedBox(height: 8),
+            _aiTile("🛏️ Rest Pod #A1 is clean & available for power nap (₹80/hr).", () {
+              Navigator.pop(ctx);
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const FacilityBookingScreen()));
+            }),
+            const SizedBox(height: 8),
+            _aiTile("🎁 5% Cashback is active on all wallet recharges today.", null),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen, foregroundColor: Colors.black),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Close", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-class AISuggestionCard extends StatelessWidget {
-
-
-  final String title;
-
-  final String message;
-
-  final VoidCallback? onTap;
-
-
-
-  const AISuggestionCard({
-
-    super.key,
-
-    this.title = "AI Smart Suggestion",
-
-    this.message =
-    "Optimized route available. Save battery and time.",
-
-    this.onTap,
-
-  });
-
-
+  Widget _aiTile(String text, VoidCallback? onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12)),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.sparkles, color: AppColors.primaryGreen, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 11.5))),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-
-
-    return InkWell(
-
-      onTap: onTap,
-
-      borderRadius:
-
-      BorderRadius.circular(28),
-
-
+    return GestureDetector(
+      onTap: () => _openAiDialog(context),
       child: Container(
-
-
-        padding:
-
-        const EdgeInsets.all(22),
-
-
-
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-
-
-
-          gradient: LinearGradient(
-
-
-
-            colors: [
-
-
-              AppColors.darkGreen
-
-                  .withOpacity(0.45),
-
-
-
-              AppColors.card,
-
-
-
-            ],
-
-
-
-            begin:
-
-            Alignment.topLeft,
-
-
-
-            end:
-
-            Alignment.bottomRight,
-
-
-
-          ),
-
-
-
-          borderRadius:
-
-          BorderRadius.circular(28),
-
-
-
-          border: Border.all(
-
-
-
-            color:
-
-            AppColors.primaryGreen
-
-                .withOpacity(0.35),
-
-
-
-          ),
-
-
-
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF00F0FF).withValues(alpha: 0.3)),
         ),
-
-
-
-
-
-        child: Row(
-
-
+        child: const Row(
           children: [
-
-
-
-
-            // AI ICON
-
-
-            Container(
-
-
-              height:55,
-
-              width:55,
-
-
-
-              decoration:
-
-              BoxDecoration(
-
-
-
-                color:
-
-                AppColors.primaryGreen
-
-                    .withOpacity(0.18),
-
-
-
-                borderRadius:
-
-                BorderRadius.circular(18),
-
-
-
-              ),
-
-
-
-
-              child:
-
-              const Icon(
-
-
-
-                LucideIcons.sparkles,
-
-
-
-                color:
-
-                AppColors.primaryGreen,
-
-
-
-                size:28,
-
-
-              ),
-
-
-
-            ),
-
-
-
-
-
-            const SizedBox(width:16),
-
-
-
-
-
-
+            Icon(LucideIcons.bot, color: Color(0xFF00F0FF), size: 20),
+            SizedBox(width: 12),
             Expanded(
-
-
-
-              child:
-
-              Column(
-
-
-
-                crossAxisAlignment:
-
-                CrossAxisAlignment.start,
-
-
-
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
-
-
-                  Text(
-
-
-
-                    title,
-
-
-
-                    style:
-
-                    const TextStyle(
-
-
-
-                      color:
-
-                      Colors.white,
-
-
-
-                      fontSize:17,
-
-
-
-                      fontWeight:
-
-                      FontWeight.bold,
-
-
-                    ),
-
-
-
-                  ),
-
-
-
-
-                  const SizedBox(height:7),
-
-
-
-
-
-                  Text(
-
-
-
-                    message,
-
-
-
-                    style:
-
-                    const TextStyle(
-
-
-
-                      color:
-
-                      Colors.white70,
-
-
-
-                      fontSize:13,
-
-
-                    ),
-
-
-
-                  ),
-
-
-
+                  Text("AI Mobility Assistant", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text("Tap to check free charging ports, rest beds & traffic", style: TextStyle(color: Colors.white54, fontSize: 10)),
                 ],
-
-
-
               ),
-
-
-
             ),
-
-
-
-
-
-            const Icon(
-
-
-
-              LucideIcons.chevronRight,
-
-
-
-              color:
-
-              AppColors.primaryGreen,
-
-
-
-            )
-
-
-
+            Icon(LucideIcons.arrowRight, color: Color(0xFF00F0FF), size: 16),
           ],
-
-
-
         ),
-
-
-
       ),
-
-
-
     );
-
-
   }
-
-
 }

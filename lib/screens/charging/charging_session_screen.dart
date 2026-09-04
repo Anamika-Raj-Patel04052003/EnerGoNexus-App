@@ -1,30 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../widgets/animated_ev_background.dart';
-
-import '../payment/payment_screen.dart';
+import '../../services/api_service.dart';
+import 'charging_payment_screen.dart';
 
 class ChargingSessionScreen extends StatefulWidget {
-  final String stationName;
-  final String stationLocation;
-  final String chargingType;
-  final String price;
-  final int selectedPort;
-  final DateTime bookingDate;
-  final TimeOfDay bookingTime;
+  final Map<String, dynamic> booking;
 
   const ChargingSessionScreen({
     super.key,
-    required this.stationName,
-    required this.stationLocation,
-    required this.chargingType,
-    required this.price,
-    required this.selectedPort,
-    required this.bookingDate,
-    required this.bookingTime,
+    required this.booking,
   });
 
   @override
@@ -34,96 +22,39 @@ class ChargingSessionScreen extends StatefulWidget {
 
 class _ChargingSessionScreenState
     extends State<ChargingSessionScreen> {
+  bool loading = false;
+  bool completed = false;
+
+  Map<String, dynamic>? session;
+
   Timer? timer;
 
-  int chargingSeconds = 0;
+  DateTime? startedAt;
 
-  double chargePercentage = 62;
+  Duration elapsed = Duration.zero;
 
-  double energyDelivered = 8.24;
-
-  double power = 22;
-
-  double estimatedCost = 98.88;
-
-  bool charging = true;
-
-  bool completed = false;
+  double simulatedUnits = 0;
 
   @override
   void initState() {
     super.initState();
 
-    startChargingTimer();
-  }
+    // Existing booking/session response ko support karega.
+    final existingSession = widget.booking['session'];
 
-  void startChargingTimer() {
-    timer = Timer.periodic(
-      const Duration(seconds: 1),
-      (timer) {
-        if (!mounted || !charging) return;
+    if (existingSession is Map) {
+      session = Map<String, dynamic>.from(
+        existingSession,
+      );
 
-        setState(() {
-          chargingSeconds++;
-
-          if (chargePercentage < 100) {
-            chargePercentage += 0.08;
-          }
-
-          if (energyDelivered < 12.45) {
-            energyDelivered += 0.015;
-          }
-
-          if (estimatedCost < 149.40) {
-            estimatedCost += 0.20;
-          }
-
-          if (chargePercentage >= 100) {
-            completeCharging();
-          }
-        });
-      },
-    );
-  }
-
-  void completeCharging() {
-    if (completed) return;
-
-    completed = true;
-    charging = false;
-
-    timer?.cancel();
-
-    setState(() {});
-  }
-
-  void stopCharging() {
-    if (!charging) return;
-
-    timer?.cancel();
-
-    setState(() {
-      charging = false;
-      completed = true;
-    });
-  }
-
-  String formatDuration(int seconds) {
-    final hours = seconds ~/ 3600;
-    final minutes = (seconds % 3600) ~/ 60;
-    final secs = seconds % 60;
-
-    final h = hours.toString().padLeft(2, '0');
-    final m = minutes.toString().padLeft(2, '0');
-    final s = secs.toString().padLeft(2, '0');
-
-    return "$h:$m:$s";
-  }
-
-  double get finalAmount {
-    return double.parse(
-      estimatedCost.toStringAsFixed(2),
-    );
+      if (session?['status']
+              ?.toString()
+              .toLowerCase() ==
+          'started') {
+        startedAt = DateTime.now();
+        startTimer();
+      }
+    }
   }
 
   @override
@@ -132,709 +63,603 @@ class _ChargingSessionScreenState
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
+  dynamic get bookingId {
+    return widget.booking['id'] ??
+        widget.booking['booking_id'];
+  }
 
-      body: AnimatedEVBackground(
-        child: SafeArea(
+  dynamic get sessionId {
+    return session?['id'];
+  }
+
+  String value(
+    Map<String, dynamic>? data,
+    List<String> keys,
+    String fallback,
+  ) {
+    if (data == null) return fallback;
+
+    for (final key in keys) {
+      final item = data[key];
+
+      if (item != null &&
+          item.toString().trim().isNotEmpty) {
+        return item.toString();
+      }
+    }
+
+    return fallback;
+  }
+
+  double numberValue(
+    Map<String, dynamic>? data,
+    List<String> keys,
+  ) {
+    if (data == null) return 0;
+
+    for (final key in keys) {
+      final value = double.tryParse(
+        data[key]?.toString() ?? '',
+      );
+
+      if (value != null) {
+        return value;
+      }
+    }
+
+    return 0;
+  }
+
+  String get stationName {
+    final station =
+        widget.booking['station'];
+
+    if (station is Map) {
+      return station['station_name']
+              ?.toString() ??
+          station['name']?.toString() ??
+          'Charging Station';
+    }
+
+    return widget.booking['station_name']
+            ?.toString() ??
+        'Charging Station';
+  }
+
+  String get portName {
+    final port =
+        widget.booking['port'];
+
+    if (port is Map) {
+      return port['port_name']
+              ?.toString() ??
+          port['name']?.toString() ??
+          'Charging Port';
+    }
+
+    return widget.booking['port_name']
+            ?.toString() ??
+        'Charging Port';
+  }
+
+  double get rate {
+    return numberValue(
+      session,
+      [
+        'price_per_unit',
+        'rate',
+      ],
+    );
+  }
+
+  double get finalAmount {
+    final backendAmount =
+        numberValue(
+      session,
+      [
+        'total_amount',
+      ],
+    );
+
+    if (backendAmount > 0) {
+      return backendAmount;
+    }
+
+    return simulatedUnits * rate;
+  }
+
+  void startTimer() {
+    timer?.cancel();
+
+    timer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (!mounted ||
+            startedAt == null) {
+          return;
+        }
+
+        final now = DateTime.now();
+
+        setState(() {
+          elapsed =
+              now.difference(startedAt!);
+
+          // Demo/live UI estimation.
+          if (!completed &&
+              rate > 0) {
+            simulatedUnits =
+                elapsed.inMinutes / 10;
+          }
+        });
+      },
+    );
+  }
+
+  Future<void> startCharging() async {
+    if (bookingId == null) {
+      showMessage(
+        'Charging booking ID not available',
+      );
+      return;
+    }
+
+    setState(() {
+      loading = true;
+    });
+
+    try {
+      final response =
+          await ApiService.startChargingSession(
+        chargingBookingId: bookingId,
+      );
+
+      if (!mounted) return;
+
+      if (response['status'] == true) {
+        final data =
+            response['session'];
+
+        if (data is Map) {
+          session =
+              Map<String, dynamic>.from(
+            data,
+          );
+        }
+
+        startedAt = DateTime.now();
+        simulatedUnits = 0;
+
+        startTimer();
+
+        showMessage(
+          'Charging started successfully',
+        );
+      } else {
+        showMessage(
+          response['message'] ??
+              'Unable to start charging',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      showMessage(
+        'Unable to start charging',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> refreshSession() async {
+    if (sessionId == null) return;
+
+    setState(() {
+      loading = true;
+    });
+
+    try {
+      final response =
+          await ApiService.getChargingSession(
+        sessionId,
+      );
+
+      if (!mounted) return;
+
+      if (response['status'] == true) {
+        final data =
+            response['session'];
+
+        if (data is Map) {
+          session =
+              Map<String, dynamic>.from(
+            data,
+          );
+        }
+
+        final status =
+            session?['status']
+                    ?.toString()
+                    .toLowerCase() ??
+                '';
+
+        if (status == 'completed') {
+          completed = true;
+          timer?.cancel();
+        }
+      } else {
+        showMessage(
+          response['message'] ??
+              'Unable to refresh session',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      showMessage(
+        'Unable to refresh session',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> completeCharging() async {
+    if (sessionId == null) {
+      showMessage(
+        'Charging session ID not available',
+      );
+      return;
+    }
+
+    final currentUnits =
+        numberValue(
+      session,
+      [
+        'units_consumed',
+      ],
+    );
+
+    final units = currentUnits > 0
+        ? currentUnits
+        : simulatedUnits > 0
+            ? simulatedUnits
+            : 0.1;
+
+    setState(() {
+      loading = true;
+    });
+
+    try {
+      final response =
+          await ApiService
+              .completeChargingSession(
+        sessionId: sessionId,
+        unitsConsumed: double.parse(
+          units.toStringAsFixed(2),
+        ),
+      );
+
+      if (!mounted) return;
+
+if (response['status'] == true) {
+  final data =
+      response['session'];
+
+  if (data is Map) {
+    session =
+        Map<String, dynamic>.from(
+      data,
+    );
+  }
+
+  final summary =
+      response['charging_summary'];
+
+  double amount = 0;
+
+  if (summary is Map) {
+    simulatedUnits =
+        double.tryParse(
+              summary['units_consumed']
+                      ?.toString() ??
+                  '',
+            ) ??
+            units;
+
+    amount =
+        double.tryParse(
+              summary['amount']
+                      ?.toString() ??
+                  '',
+            ) ??
+            0;
+  } else {
+    simulatedUnits = units;
+  }
+
+  completed = true;
+  timer?.cancel();
+
+  if (!mounted) return;
+
+  await Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (_) =>
+          ChargingPaymentScreen(
+        chargingSessionId:
+            sessionId,
+        amount: amount,
+      ),
+    ),
+  );
+}else {
+        showMessage(
+          response['message'] ??
+              'Unable to complete charging',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      showMessage(
+        'Unable to complete charging',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> showCompletedDialog(
+    Map<String, dynamic> response,
+  ) async {
+    final summary =
+        response['charging_summary'];
+
+    final amount =
+        summary is Map
+            ? double.tryParse(
+                  summary['amount']
+                          ?.toString() ??
+                      '',
+                ) ??
+                finalAmount
+            : finalAmount;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return AlertDialog(
+          backgroundColor:
+              AppColors.card,
+          shape:
+              RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(
+              24,
+            ),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                LucideIcons
+                    .circleCheck,
+                color:
+                    AppColors
+                        .primaryGreen,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Charging Complete',
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize:
+                MainAxisSize.min,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Energy Used: ${simulatedUnits.toStringAsFixed(2)} units',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Amount: ₹${amount.toStringAsFixed(2)}',
+                style:
+                    const TextStyle(
+                  color:
+                      AppColors
+                          .primaryGreen,
+                  fontWeight:
+                      FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                );
+              },
+              child:
+                  const Text(
+                'DONE',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showMessage(
+    String message,
+  ) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(
+      SnackBar(
+        content: Text(message),
+      ),
+    );
+  }
+
+  String formattedDuration(
+    Duration duration,
+  ) {
+    final hours =
+        duration.inHours
+            .toString()
+            .padLeft(
+          2,
+          '0',
+        );
+
+    final minutes =
+        duration.inMinutes
+                .remainder(60)
+                .toString()
+                .padLeft(
+              2,
+              '0',
+            );
+
+    final seconds =
+        duration.inSeconds
+                .remainder(60)
+                .toString()
+                .padLeft(
+              2,
+              '0',
+            );
+
+    return '$hours:$minutes:$seconds';
+  }
+
+  bool get isRunning {
+    final status =
+        session?['status']
+                ?.toString()
+                .toLowerCase() ??
+            '';
+
+    return status == 'started' &&
+        !completed;
+  }
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) {
+    return Scaffold(
+      backgroundColor:
+          AppColors.background,
+
+      appBar: AppBar(
+        backgroundColor:
+            Colors.transparent,
+        elevation: 0,
+
+        leading: IconButton(
+          onPressed: () {
+            Navigator.pop(
+              context,
+            );
+          },
+          icon: const Icon(
+            LucideIcons.arrowLeft,
+          ),
+        ),
+
+        title: const Text(
+          'Charging Session',
+          style: TextStyle(
+            fontWeight:
+                FontWeight.bold,
+          ),
+        ),
+
+        actions: [
+          IconButton(
+            onPressed: loading
+                ? null
+                : refreshSession,
+            icon: const Icon(
+              LucideIcons.refreshCw,
+            ),
+          ),
+        ],
+      ),
+
+      body: SafeArea(
+        child:
+            SingleChildScrollView(
+          padding:
+              const EdgeInsets.all(
+            20,
+          ),
           child: Column(
             children: [
-              // =================================================
-              // HEADER
-              // =================================================
+              stationCard(),
 
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  15,
-                  12,
-                  20,
-                  10,
-                ),
-
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        color: Colors.white,
-                      ),
-                    ),
-
-                    const SizedBox(width: 5),
-
-                    const Expanded(
-                      child: Text(
-                        "Charging Session",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 23,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors
-                            .primaryGreen
-                            .withOpacity(.12),
-                        borderRadius:
-                            BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.bolt,
-                            color:
-                                AppColors.primaryGreen,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            "Port ${widget.selectedPort}",
-                            style: const TextStyle(
-                              color:
-                                  AppColors.primaryGreen,
-                              fontSize: 11,
-                              fontWeight:
-                                  FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              const SizedBox(
+                height: 20,
               ),
 
-              Expanded(
-                child: SingleChildScrollView(
-                  padding:
-                      const EdgeInsets.fromLTRB(
-                    20,
-                    5,
-                    20,
-                    25,
-                  ),
+              liveStatusCard(),
 
-                  child: Column(
-                    children: [
-                      // =================================================
-                      // SESSION IDENTIFIER
-                      // =================================================
+              const SizedBox(
+                height: 20,
+              ),
 
-                      Container(
-                        width: double.infinity,
-                        padding:
-                            const EdgeInsets.all(16),
+              sessionStats(),
 
-                        decoration:
-                            BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius:
-                              BorderRadius.circular(
-                            20,
-                          ),
-                        ),
+              const SizedBox(
+                height: 20,
+              ),
 
-                        child: Row(
-                          children: [
-                            Container(
-                              height: 42,
-                              width: 42,
+              energyCard(),
 
-                              decoration:
-                                  BoxDecoration(
-                                color: AppColors
-                                    .primaryGreen
-                                    .withOpacity(
-                                        .14),
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(
-                                  13,
-                                ),
-                              ),
+              const SizedBox(
+                height: 25,
+              ),
 
-                              child: const Icon(
-                                Icons
-                                    .electric_bolt,
-                                color: AppColors
-                                    .primaryGreen,
-                              ),
-                            ),
+              actionButton(),
 
-                            const SizedBox(
-                              width: 12,
-                            ),
+              const SizedBox(
+                height: 20,
+              ),
 
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment
-                                        .start,
-                                children: [
-                                  Text(
-                                    "Charging Session",
-                                    style:
-                                        TextStyle(
-                                      color: Colors
-                                          .white54,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    height: 4,
-                                  ),
-                                  Text(
-                                    "Session Active",
-                                    style:
-                                        TextStyle(
-                                      color: Colors
-                                          .white,
-                                      fontSize: 15,
-                                      fontWeight:
-                                          FontWeight
-                                              .bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            Container(
-                              padding:
-                                  const EdgeInsets
-                                      .symmetric(
-                                horizontal: 9,
-                                vertical: 6,
-                              ),
-                              decoration:
-                                  BoxDecoration(
-                                color: charging
-                                    ? Colors.green
-                                        .withOpacity(
-                                            .14)
-                                    : AppColors
-                                        .primaryGreen
-                                        .withOpacity(
-                                            .14),
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(
-                                  15,
-                                ),
-                              ),
-                              child: Text(
-                                charging
-                                    ? "CHARGING"
-                                    : "COMPLETED",
-                                style: TextStyle(
-                                  color: charging
-                                      ? Colors.green
-                                      : AppColors
-                                          .primaryGreen,
-                                  fontSize: 10,
-                                  fontWeight:
-                                      FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 25),
-
-                      // =================================================
-                      // CHARGING PROGRESS
-                      // =================================================
-
-                      Container(
-                        width: double.infinity,
-                        padding:
-                            const EdgeInsets.fromLTRB(
-                          20,
-                          25,
-                          20,
-                          25,
-                        ),
-
-                        decoration:
-                            BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius:
-                              BorderRadius.circular(
-                            28,
-                          ),
-                          border: Border.all(
-                            color: AppColors
-                                .primaryGreen
-                                .withOpacity(.20),
-                          ),
-                        ),
-
-                        child: Column(
-                          children: [
-                            SizedBox(
-                              height: 220,
-                              width: 220,
-
-                              child:
-                                  Stack(
-                                alignment:
-                                    Alignment.center,
-                                children: [
-                                  SizedBox(
-                                    height: 205,
-                                    width: 205,
-                                    child:
-                                        CircularProgressIndicator(
-                                      value:
-                                          chargePercentage /
-                                              100,
-
-                                      strokeWidth:
-                                          12,
-
-                                      backgroundColor:
-                                          Colors
-                                              .white10,
-
-                                      valueColor:
-                                          const AlwaysStoppedAnimation<
-                                              Color>(
-                                        AppColors
-                                            .primaryGreen,
-                                      ),
-                                    ),
-                                  ),
-
-                                  Column(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment
-                                            .center,
-                                    children: [
-                                      Text(
-                                        "${chargePercentage.toStringAsFixed(0)}%",
-                                        style:
-                                            const TextStyle(
-                                          color: Colors
-                                              .white,
-                                          fontSize: 44,
-                                          fontWeight:
-                                              FontWeight
-                                                  .bold,
-                                        ),
-                                      ),
-
-                                      const SizedBox(
-                                        height: 5,
-                                      ),
-
-                                      Text(
-                                        charging
-                                            ? "Charging..."
-                                            : "Charging Complete",
-                                        style:
-                                            const TextStyle(
-                                          color: Colors
-                                              .white54,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 22),
-
-                            Text(
-                              widget.stationName,
-                              textAlign:
-                                  TextAlign.center,
-                              style:
-                                  const TextStyle(
-                                color:
-                                    Colors.white,
-                                fontSize: 18,
-                                fontWeight:
-                                    FontWeight.bold,
-                              ),
-                            ),
-
-                            const SizedBox(height: 7),
-
-                            Text(
-                              widget.stationLocation,
-                              textAlign:
-                                  TextAlign.center,
-                              style:
-                                  const TextStyle(
-                                color:
-                                    Colors.white54,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // =================================================
-                      // LIVE CHARGING DETAILS
-                      // =================================================
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: metricCard(
-                              title:
-                                  "Energy Delivered",
-                              value:
-                                  "${energyDelivered.toStringAsFixed(2)} kWh",
-                              icon:
-                                  Icons.battery_charging_full,
-                            ),
-                          ),
-
-                          const SizedBox(
-                            width: 12,
-                          ),
-
-                          Expanded(
-                            child: metricCard(
-                              title:
-                                  "Charging Time",
-                              value:
-                                  formatDuration(
-                                chargingSeconds,
-                              ),
-                              icon:
-                                  Icons.timer_outlined,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: metricCard(
-                              title: "Power",
-                              value:
-                                  "${power.toStringAsFixed(0)} kW",
-                              icon:
-                                  Icons.speed,
-                            ),
-                          ),
-
-                          const SizedBox(
-                            width: 12,
-                          ),
-
-                          Expanded(
-                            child: metricCard(
-                              title: "Est. Cost",
-                              value:
-                                  "₹${estimatedCost.toStringAsFixed(2)}",
-                              icon:
-                                  Icons.currency_rupee,
-                              highlight: true,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 22),
-
-                      // =================================================
-                      // STATION DETAILS
-                      // =================================================
-
-                      Container(
-                        width: double.infinity,
-                        padding:
-                            const EdgeInsets.all(18),
-
-                        decoration:
-                            BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius:
-                              BorderRadius.circular(
-                            22,
-                          ),
-                        ),
-
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment
-                                  .start,
-                          children: [
-                            const Text(
-                              "Session Details",
-                              style:
-                                  TextStyle(
-                                color: Colors.white,
-                                fontSize: 17,
-                                fontWeight:
-                                    FontWeight
-                                        .bold,
-                              ),
-                            ),
-
-                            const SizedBox(
-                              height: 15,
-                            ),
-
-                            detailRow(
-                              "Charging Type",
-                              widget.chargingType,
-                            ),
-
-                            detailRow(
-                              "Charging Port",
-                              "Port ${widget.selectedPort}",
-                            ),
-
-                            detailRow(
-                              "Unit Price",
-                              widget.price,
-                            ),
-
-                            detailRow(
-                              "Booking Date",
-                              "${widget.bookingDate.day.toString().padLeft(2, '0')}/"
-                              "${widget.bookingDate.month.toString().padLeft(2, '0')}/"
-                              "${widget.bookingDate.year}",
-                            ),
-
-                            detailRow(
-                              "Booking Time",
-                              widget.bookingTime
-                                  .format(
-                                context,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // =================================================
-                      // SAFETY / INFO
-                      // =================================================
-
-                      Container(
-                        width: double.infinity,
-                        padding:
-                            const EdgeInsets.all(15),
-
-                        decoration:
-                            BoxDecoration(
-                          color: AppColors
-                              .darkGreen
-                              .withOpacity(.28),
-
-                          borderRadius:
-                              BorderRadius.circular(
-                            18,
-                          ),
-
-                          border: Border.all(
-                            color: AppColors
-                                .primaryGreen
-                                .withOpacity(.14),
-                          ),
-                        ),
-
-                        child: Row(
-                          children: [
-                            Container(
-                              height: 40,
-                              width: 40,
-
-                              decoration:
-                                  BoxDecoration(
-                                color: AppColors
-                                    .primaryGreen
-                                    .withOpacity(
-                                        .10),
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(
-                                  12,
-                                ),
-                              ),
-
-                              child: const Icon(
-                                Icons.lightbulb_outline,
-                                color: AppColors
-                                    .primaryGreen,
-                                size: 21,
-                              ),
-                            ),
-
-                            const SizedBox(
-                              width: 12,
-                            ),
-
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment
-                                        .start,
-                                children: [
-                                  Text(
-                                    "Charging Tip",
-                                    style:
-                                        TextStyle(
-                                      color: Colors
-                                          .white,
-                                      fontSize: 12,
-                                      fontWeight:
-                                          FontWeight
-                                              .bold,
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    height: 4,
-                                  ),
-                                  Text(
-                                    "Keep the vehicle connected until charging is complete.",
-                                    style:
-                                        TextStyle(
-                                      color: Colors
-                                          .white54,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 25),
-
-                      // =================================================
-                      // ACTION BUTTON
-                      // =================================================
-
-                      if (charging)
-                        SizedBox(
-                          width: double.infinity,
-                          height: 55,
-
-                          child:
-                              OutlinedButton(
-                            onPressed:
-                                stopCharging,
-
-                            style:
-                                OutlinedButton
-                                    .styleFrom(
-                              foregroundColor:
-                                  Colors.redAccent,
-
-                              side:
-                                  const BorderSide(
-                                color:
-                                    Colors.redAccent,
-                              ),
-
-                              shape:
-                                  RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(
-                                  20,
-                                ),
-                              ),
-                            ),
-
-                            child: const Text(
-                              "STOP CHARGING",
-                              style:
-                                  TextStyle(
-                                fontWeight:
-                                    FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        SizedBox(
-                          width: double.infinity,
-                          height: 55,
-
-                          child:
-                              ElevatedButton(
-                            onPressed: () {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      PaymentScreen(
-                                    rideId:
-                                        "charging-${widget.selectedPort}",
-
-                                    amount:
-                                        finalAmount,
-                                  ),
-                                ),
-                              );
-                            },
-
-                            style:
-                                ElevatedButton
-                                    .styleFrom(
-                              backgroundColor:
-                                  AppColors
-                                      .primaryGreen,
-
-                              foregroundColor:
-                                  Colors.black,
-
-                              shape:
-                                  RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(
-                                  20,
-                                ),
-                              ),
-                            ),
-
-                            child: const Text(
-                              "PROCEED TO PAYMENT",
-                              style:
-                                  TextStyle(
-                                fontWeight:
-                                    FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+              if (!completed)
+                const Text(
+                  'Keep this screen open while charging',
+                  style:
+                      TextStyle(
+                    color:
+                        Colors.white38,
+                    fontSize: 12,
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -842,69 +667,95 @@ class _ChargingSessionScreenState
     );
   }
 
-  // ===========================================================
-  // METRIC CARD
-  // ===========================================================
-
-  Widget metricCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    bool highlight = false,
-  }) {
+  Widget stationCard() {
     return Container(
+      width:
+          double.infinity,
       padding:
-          const EdgeInsets.all(16),
-
-      decoration: BoxDecoration(
-        color: AppColors.card,
-
+          const EdgeInsets.all(
+        20,
+      ),
+      decoration:
+          BoxDecoration(
+        color:
+            AppColors.card,
         borderRadius:
-            BorderRadius.circular(20),
-
-        border: Border.all(
-          color: highlight
-              ? AppColors.primaryGreen
-                  .withOpacity(.25)
-              : Colors.white10,
+            BorderRadius.circular(
+          24,
         ),
       ),
-
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-
+      child:
+          Row(
         children: [
-          Icon(
-            icon,
-            color:
-                AppColors.primaryGreen,
-            size: 22,
-          ),
-
-          const SizedBox(height: 12),
-
-          Text(
-            title,
-            style:
-                const TextStyle(
-              color: Colors.white54,
-              fontSize: 11,
+          Container(
+            height:
+                62,
+            width:
+                62,
+            decoration:
+                BoxDecoration(
+              color: AppColors
+                  .primaryGreen
+                  .withValues(
+                alpha: .12,
+              ),
+              borderRadius:
+                  BorderRadius.circular(
+                18,
+              ),
+            ),
+            child:
+                const Icon(
+              LucideIcons
+                  .batteryCharging,
+              color:
+                  AppColors
+                      .primaryGreen,
+              size:
+                  34,
             ),
           ),
 
-          const SizedBox(height: 5),
+          const SizedBox(
+            width: 14,
+          ),
 
-          Text(
-            value,
-            style:
-                TextStyle(
-              color: highlight
-                  ? AppColors.primaryGreen
-                  : Colors.white,
-              fontSize: 17,
-              fontWeight:
-                  FontWeight.bold,
+          Expanded(
+            child:
+                Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment
+                      .start,
+              children: [
+                Text(
+                  stationName,
+                  maxLines:
+                      1,
+                  overflow:
+                      TextOverflow
+                          .ellipsis,
+                  style:
+                      const TextStyle(
+                    fontSize:
+                        18,
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(
+                  height: 5,
+                ),
+                Text(
+                  portName,
+                  style:
+                      const TextStyle(
+                    color:
+                        Colors.white54,
+                    fontSize:
+                        12,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -912,49 +763,464 @@ class _ChargingSessionScreenState
     );
   }
 
-  // ===========================================================
-  // DETAIL ROW
-  // ===========================================================
+  Widget liveStatusCard() {
+    final title =
+        completed
+            ? 'Charging Completed'
+            : isRunning
+                ? 'Charging in Progress'
+                : 'Ready to Charge';
 
-  Widget detailRow(
-    String title,
-    String value,
-  ) {
-    return Padding(
+    final icon =
+        completed
+            ? LucideIcons
+                .circleCheck
+            : isRunning
+                ? LucideIcons
+                    .zap
+                : LucideIcons
+                    .plugZap;
+
+    return Container(
+      width:
+          double.infinity,
       padding:
-          const EdgeInsets.only(bottom: 12),
-
-      child: Row(
+          const EdgeInsets.symmetric(
+        vertical: 28,
+        horizontal: 20,
+      ),
+      decoration:
+          BoxDecoration(
+        color: AppColors
+            .primaryGreen
+            .withValues(
+          alpha:
+              completed ? .08 : .12,
+        ),
+        borderRadius:
+            BorderRadius.circular(
+          26,
+        ),
+        border:
+            Border.all(
+          color: AppColors
+              .primaryGreen
+              .withValues(
+            alpha: .18,
+          ),
+        ),
+      ),
+      child:
+          Column(
         children: [
-          Expanded(
-            child: Text(
-              title,
-              style:
-                  const TextStyle(
-                color: Colors.white54,
-                fontSize: 12,
+          Container(
+            height:
+                85,
+            width:
+                85,
+            decoration:
+                BoxDecoration(
+              shape:
+                  BoxShape.circle,
+              color: AppColors
+                  .primaryGreen
+                  .withValues(
+                alpha: .12,
               ),
+            ),
+            child:
+                Icon(
+              icon,
+              color:
+                  AppColors
+                      .primaryGreen,
+              size:
+                  45,
             ),
           ),
 
-          Expanded(
-            child: Text(
-              value,
-              textAlign:
-                  TextAlign.right,
-              maxLines: 1,
-              overflow:
-                  TextOverflow.ellipsis,
+          const SizedBox(
+            height: 16,
+          ),
+
+          Text(
+            title,
+            style:
+                const TextStyle(
+              fontSize:
+                  21,
+              fontWeight:
+                  FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(
+            height: 8,
+          ),
+
+          if (isRunning)
+            Text(
+              formattedDuration(
+                elapsed,
+              ),
               style:
                   const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
+                color: AppColors
+                    .primaryGreen,
+                fontSize:
+                    30,
                 fontWeight:
                     FontWeight.bold,
+                letterSpacing:
+                    1.5,
               ),
+            )
+          else
+            Text(
+              completed
+                  ? 'Session finished successfully'
+                  : 'Start your EV charging session',
+              textAlign:
+                  TextAlign.center,
+              style:
+                  const TextStyle(
+                color:
+                    Colors.white54,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget sessionStats() {
+    final bookingDate =
+        widget.booking[
+                'booking_date']
+            ?.toString() ??
+            '-';
+
+    final startTime =
+        widget.booking[
+                'start_time']
+            ?.toString() ??
+            '-';
+
+    final endTime =
+        widget.booking[
+                'end_time']
+            ?.toString() ??
+            '-';
+
+    return Row(
+      children: [
+        Expanded(
+          child: statCard(
+            icon:
+                LucideIcons.calendarDays,
+            title:
+                'Date',
+            value:
+                bookingDate,
+          ),
+        ),
+
+        const SizedBox(
+          width: 10,
+        ),
+
+        Expanded(
+          child: statCard(
+            icon:
+                LucideIcons.clock3,
+            title:
+                'Slot',
+            value:
+                '$startTime - $endTime',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget statCard({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    return Container(
+      padding:
+          const EdgeInsets.all(
+        15,
+      ),
+      decoration:
+          BoxDecoration(
+        color:
+            AppColors.card,
+        borderRadius:
+            BorderRadius.circular(
+          18,
+        ),
+      ),
+      child:
+          Column(
+        crossAxisAlignment:
+            CrossAxisAlignment
+                .start,
+        children: [
+          Icon(
+            icon,
+            color:
+                AppColors
+                    .primaryGreen,
+            size:
+                21,
+          ),
+          const SizedBox(
+            height: 9,
+          ),
+          Text(
+            title,
+            style:
+                const TextStyle(
+              color:
+                  Colors.white38,
+              fontSize:
+                  11,
+            ),
+          ),
+          const SizedBox(
+            height: 5,
+          ),
+          Text(
+            value,
+            maxLines:
+                2,
+            overflow:
+                TextOverflow
+                    .ellipsis,
+            style:
+                const TextStyle(
+              fontWeight:
+                  FontWeight.bold,
+              fontSize:
+                  12,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget energyCard() {
+    final units =
+        numberValue(
+              session,
+              [
+                'units_consumed',
+              ],
+            ) >
+            0
+        ? numberValue(
+            session,
+            [
+              'units_consumed',
+            ],
+          )
+        : simulatedUnits;
+
+    final amount =
+        finalAmount;
+
+    return Container(
+      width:
+          double.infinity,
+      padding:
+          const EdgeInsets.all(
+        20,
+      ),
+      decoration:
+          BoxDecoration(
+        color:
+            AppColors.card,
+        borderRadius:
+            BorderRadius.circular(
+          22,
+        ),
+      ),
+      child:
+          Column(
+        children: [
+          Row(
+            children: [
+              const Icon(
+                LucideIcons
+                    .zap,
+                color:
+                    AppColors
+                        .primaryGreen,
+              ),
+              const SizedBox(
+                width: 10,
+              ),
+              const Expanded(
+                child: Text(
+                  'Energy & Cost',
+                  style:
+                      TextStyle(
+                    fontSize:
+                        18,
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(
+            height: 20,
+          ),
+
+          Row(
+            children: [
+              Expanded(
+                child: energyValue(
+                  'Energy Used',
+                  '${units.toStringAsFixed(2)} kWh',
+                ),
+              ),
+              Expanded(
+                child: energyValue(
+                  'Rate',
+                  '₹${rate.toStringAsFixed(2)} / unit',
+                ),
+              ),
+              Expanded(
+                child: energyValue(
+                  'Amount',
+                  '₹${amount.toStringAsFixed(2)}',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget energyValue(
+    String title,
+    String value,
+  ) {
+    return Column(
+      children: [
+        Text(
+          title,
+          textAlign:
+              TextAlign.center,
+          style:
+              const TextStyle(
+            color:
+                Colors.white38,
+            fontSize:
+                11,
+          ),
+        ),
+        const SizedBox(
+          height: 7,
+        ),
+        Text(
+          value,
+          textAlign:
+              TextAlign.center,
+          style:
+              const TextStyle(
+            color:
+                AppColors.primaryGreen,
+            fontWeight:
+                FontWeight.bold,
+            fontSize:
+                13,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget actionButton() {
+    String text;
+    IconData icon;
+    VoidCallback? action;
+
+    if (loading) {
+      text = 'PROCESSING...';
+      icon = LucideIcons.loaderCircle;
+      action = null;
+    } else if (completed) {
+      text = 'CHARGING COMPLETED';
+      icon = LucideIcons.circleCheck;
+      action = null;
+    } else if (isRunning) {
+      text = 'COMPLETE CHARGING';
+      icon = LucideIcons.square;
+      action = completeCharging;
+    } else {
+      text = 'START CHARGING';
+      icon = LucideIcons.zap;
+      action = startCharging;
+    }
+
+    return SizedBox(
+      width:
+          double.infinity,
+      height:
+          58,
+      child:
+          ElevatedButton.icon(
+        onPressed:
+            action,
+        icon: loading
+            ? const SizedBox(
+                height:
+                    20,
+                width:
+                    20,
+                child:
+                    CircularProgressIndicator(
+                  strokeWidth:
+                      2,
+                ),
+              )
+            : Icon(icon),
+        label:
+            Text(
+          text,
+          style:
+              const TextStyle(
+            fontWeight:
+                FontWeight.bold,
+          ),
+        ),
+        style:
+            ElevatedButton.styleFrom(
+          backgroundColor:
+              completed
+                  ? Colors.white12
+                  : AppColors
+                      .primaryGreen,
+          foregroundColor:
+              completed
+                  ? Colors.white54
+                  : Colors.black,
+          shape:
+              RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(
+              19,
+            ),
+          ),
+        ),
       ),
     );
   }

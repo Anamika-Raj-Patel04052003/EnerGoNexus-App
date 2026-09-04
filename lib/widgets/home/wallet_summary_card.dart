@@ -1,540 +1,78 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../../core/constants/app_colors.dart';
-
-
+import '../../screens/wallet/wallet_screen.dart';
+import '../../services/energo_unified_service.dart';
 
 class WalletSummaryCard extends StatelessWidget {
-
-
-  final double balance;
-
-  final VoidCallback? onAddMoney;
-
-  final VoidCallback? onHistory;
-
-
-
-  const WalletSummaryCard({
-
-    super.key,
-
-    required this.balance,
-
-    this.onAddMoney,
-
-    this.onHistory,
-
-  });
-
-
+  const WalletSummaryCard({super.key});
 
   @override
   Widget build(BuildContext context) {
-
-
-    return Container(
-
-
-      padding:
-
-      const EdgeInsets.all(22),
-
-
-
-      decoration: BoxDecoration(
-
-
-        color:
-
-        AppColors.card,
-
-
-
-        borderRadius:
-
-        BorderRadius.circular(28),
-
-
-
-        border: Border.all(
-
-
-          color:
-
-          AppColors.primaryGreen
-
-              .withOpacity(0.25),
-
-
-        ),
-
-
-
-
-        boxShadow: [
-
-
-
-          BoxShadow(
-
-
-            color:
-
-            AppColors.primaryGreen
-
-                .withOpacity(0.08),
-
-
-            blurRadius:20,
-
-
-            offset:
-
-            const Offset(0,8),
-
-
-          )
-
-
-
-        ],
-
-
-
-      ),
-
-
-
-
-      child: Column(
-
-
-        crossAxisAlignment:
-
-        CrossAxisAlignment.start,
-
-
-
-        children: [
-
-
-
-          // Header
-
-
-          Row(
-
-
-            mainAxisAlignment:
-
-            MainAxisAlignment.spaceBetween,
-
-
-
-            children: [
-
-
-
-              const Text(
-
-
-                "Wallet Balance",
-
-
-
-                style:
-
-                TextStyle(
-
-
-
-                  color:
-
-                  Colors.white70,
-
-
-
-                  fontSize:14,
-
-
-                ),
-
-
-
+    final service = EnergoUnifiedService();
+
+    return AnimatedBuilder(
+      animation: service,
+      builder: (context, child) {
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const WalletScreen()),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF131D31),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFF00E676).withOpacity(0.35)),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF131D31), Color(0x1A00E676)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-
-
-
-
-
-              Container(
-
-
-                height:38,
-
-                width:38,
-
-
-
-                decoration:
-
-                BoxDecoration(
-
-
-
-                  color:
-
-                  AppColors.primaryGreen
-
-                      .withOpacity(0.15),
-
-
-
-                  borderRadius:
-
-                  BorderRadius.circular(12),
-
-
-                ),
-
-
-
-                child:
-
-                const Icon(
-
-
-                  LucideIcons.wallet,
-
-
-                  color:
-
-                  AppColors.primaryGreen,
-
-
-                  size:20,
-
-
-                ),
-
-
-
-              )
-
-
-
-            ],
-
-
-
-          ),
-
-
-
-
-
-          const SizedBox(height:15),
-
-
-
-
-
-          // Balance
-
-
-          Text(
-
-
-            "₹ ${balance.toStringAsFixed(0)}",
-
-
-
-            style:
-
-            const TextStyle(
-
-
-
-              color:
-
-              Colors.white,
-
-
-
-              fontSize:32,
-
-
-
-              fontWeight:
-
-              FontWeight.bold,
-
-
-              letterSpacing:0.5,
-
-
             ),
-
-
-
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Text("EnerGo Cash Balance", style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+                        SizedBox(width: 6),
+                        Icon(Icons.stars, color: Color(0xFF00E676), size: 14),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "₹ ${service.walletBalance.toStringAsFixed(2)}",
+                      style: const TextStyle(color: Color(0xFF00E676), fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text("⚡ 5% Auto-Cashback on all Rides & Hubs", style: TextStyle(color: Color(0xFF00F0FF), fontSize: 10, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E676),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.add, color: Colors.black, size: 16),
+                      SizedBox(width: 4),
+                      Text("Add Money", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11.5)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-
-
-
-
-          const SizedBox(height:20),
-
-
-
-
-
-          Row(
-
-
-            children: [
-
-
-
-              Expanded(
-
-
-
-                child:
-
-                ElevatedButton.icon(
-
-
-
-                  onPressed:
-
-                  onAddMoney,
-
-
-
-                  icon:
-
-                  const Icon(
-
-
-                    LucideIcons.plus,
-
-
-                    size:18,
-
-
-                  ),
-
-
-
-
-                  label:
-
-                  const Text(
-
-
-                    "Add Money",
-
-
-                  ),
-
-
-
-                  style:
-
-                  ElevatedButton.styleFrom(
-
-
-
-                    backgroundColor:
-
-                    AppColors.primaryGreen,
-
-
-
-                    foregroundColor:
-
-                    Colors.black,
-
-
-
-                    elevation:0,
-
-
-
-                    padding:
-
-                    const EdgeInsets.symmetric(
-
-                      vertical:13,
-
-                    ),
-
-
-
-                    shape:
-
-                    RoundedRectangleBorder(
-
-
-                      borderRadius:
-
-                      BorderRadius.circular(18),
-
-
-                    ),
-
-
-                  ),
-
-
-
-                ),
-
-
-
-              ),
-
-
-
-
-              const SizedBox(width:12),
-
-
-
-
-
-              Expanded(
-
-
-
-                child:
-
-                OutlinedButton.icon(
-
-
-
-                  onPressed:
-
-                  onHistory,
-
-
-
-                  icon:
-
-                  const Icon(
-
-
-                    LucideIcons.history,
-
-
-                    size:18,
-
-
-                  ),
-
-
-
-                  label:
-
-                  const Text(
-
-
-                    "History",
-
-
-                  ),
-
-
-
-                  style:
-
-                  OutlinedButton.styleFrom(
-
-
-
-                    foregroundColor:
-
-                    Colors.white,
-
-
-
-                    side:
-
-                    BorderSide(
-
-
-                      color:
-
-                      AppColors.primaryGreen
-
-                          .withOpacity(0.5),
-
-
-                    ),
-
-
-
-                    padding:
-
-                    const EdgeInsets.symmetric(
-
-                      vertical:13,
-
-                    ),
-
-
-
-                    shape:
-
-                    RoundedRectangleBorder(
-
-
-
-                      borderRadius:
-
-                      BorderRadius.circular(18),
-
-
-
-                    ),
-
-
-
-                  ),
-
-
-
-                ),
-
-
-
-              ),
-
-
-
-            ],
-
-
-
-          )
-
-
-
-        ],
-
-
-
-      ),
-
-
-
+        );
+      },
     );
-
-
   }
-
-
-
 }

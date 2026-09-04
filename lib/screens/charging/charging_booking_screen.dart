@@ -1,877 +1,532 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_colors.dart';
-import '../../widgets/animated_ev_background.dart';
-
-import 'charging_session_screen.dart';
+import '../../services/energo_unified_service.dart';
+import '../../services/razorpay_service.dart';
 
 class ChargingBookingScreen extends StatefulWidget {
-  final String stationName;
-  final String stationLocation;
-  final String chargingType;
-  final String price;
-
-  const ChargingBookingScreen({
-    super.key,
-    required this.stationName,
-    required this.stationLocation,
-    required this.chargingType,
-    required this.price,
-  });
+  final Map<String, dynamic>? station;
+  const ChargingBookingScreen({super.key, this.station});
 
   @override
-  State<ChargingBookingScreen> createState() =>
-      _ChargingBookingScreenState();
+  State<ChargingBookingScreen> createState() => _ChargingBookingScreenState();
 }
 
-class _ChargingBookingScreenState
-    extends State<ChargingBookingScreen> {
-  int selectedPort = 1;
+class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
+  final List<String> _vehicles = [
+    "Tata Nexon EV (40 kWh)",
+    "MG ZS EV (50 kWh)",
+    "Mahindra XUV400 (39 kWh)",
+    "Tata Tiago EV (24 kWh)",
+    "Ather 450X (3.7 kWh)",
+    "Ola S1 Pro (4 kWh)",
+  ];
 
-  DateTime? selectedDate;
+  late Map<String, dynamic> _currentStation;
+  late Map<String, dynamic> _selectedPort;
+  String _selectedVehicle = "Tata Nexon EV (40 kWh)";
+  double _chargePercentage = 60.0;
+  String _paymentMethod = "razorpay";
 
-  TimeOfDay? selectedTime;
+  // ACTIVE CHARGING SESSION
+  bool _isSessionActive = false;
+  String? _activePortId;
+  int _remainingSeconds = 0;
+  Timer? _sessionTimer;
 
-  bool bookingLoading = false;
-
-  // ==========================================================
-  // DATE PICKER
-  // ==========================================================
-
-  Future<void> selectDate() async {
-    final now = DateTime.now();
-
-    final picked = await showDatePicker(
-      context: context,
-      firstDate: now,
-      lastDate: now.add(
-        const Duration(days: 30),
-      ),
-      initialDate: selectedDate ?? now,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.primaryGreen,
-              surface: AppColors.card,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        selectedDate = picked;
-      });
-    }
+  @override
+  void initState() {
+    super.initState();
+    final service = EnergoUnifiedService();
+    _currentStation = service.stations[0];
+    _pickDefaultPort();
   }
 
-  // ==========================================================
-  // TIME PICKER
-  // ==========================================================
-
-  Future<void> selectTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime:
-          selectedTime ?? TimeOfDay.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.primaryGreen,
-              surface: AppColors.card,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        selectedTime = picked;
-      });
-    }
-  }
-
-  // ==========================================================
-  // BOOK SLOT
-  // ==========================================================
-
-  Future<void> bookChargingSlot() async {
-    if (selectedDate == null) {
-      showMessage(
-        "Please select a charging date",
-      );
-      return;
-    }
-
-    if (selectedTime == null) {
-      showMessage(
-        "Please select a charging time",
-      );
-      return;
-    }
-
-    try {
-      setState(() {
-        bookingLoading = true;
-      });
-
-      // ------------------------------------------------------
-      // Backend booking API later connect karenge.
-      // Abhi navigation structure prepare kar rahe hain.
-      // ------------------------------------------------------
-
-      await Future.delayed(
-        const Duration(milliseconds: 700),
-      );
-
-      if (!mounted) return;
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              ChargingSessionScreen(
-            stationName:
-                widget.stationName,
-
-            stationLocation:
-                widget.stationLocation,
-
-            chargingType:
-                widget.chargingType,
-
-            price:
-                widget.price,
-
-            selectedPort:
-                selectedPort,
-
-            bookingDate:
-                selectedDate!,
-
-            bookingTime:
-                selectedTime!,
-          ),
-        ),
-      );
-    } catch (e) {
-      debugPrint(
-        "CHARGING BOOKING ERROR: $e",
-      );
-
-      showMessage(
-        "Unable to book charging slot",
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          bookingLoading = false;
-        });
+  void _pickDefaultPort() {
+    final List ports = _currentStation['ports'] as List;
+    Map<String, dynamic> candidate = ports[0] as Map<String, dynamic>;
+    for (final p in ports) {
+      final map = p as Map<String, dynamic>;
+      if (map['isOccupied'] == false) {
+        candidate = map;
+        break;
       }
     }
+    _selectedPort = candidate;
   }
 
-  void showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
+  @override
+  void dispose() {
+    _sessionTimer?.cancel();
+    super.dispose();
+  }
+
+  // SCIENTIFIC ENERGY & CHARGING TIME FORMULA
+  double get _batteryCapacityKwh {
+    if (_selectedVehicle.contains("50 kWh")) return 50.0;
+    if (_selectedVehicle.contains("39 kWh")) return 39.4;
+    if (_selectedVehicle.contains("24 kWh")) return 24.0;
+    if (_selectedVehicle.contains("3.7 kWh")) return 3.7;
+    if (_selectedVehicle.contains("4 kWh")) return 4.0;
+    return 40.5; // Nexon EV Max default
+  }
+
+  double get _estimatedKwh => (_chargePercentage / 100) * _batteryCapacityKwh;
+  double get _tariffRate => ((_currentStation['rate'] as num?)?.toDouble()) ?? 18.50;
+  double get _baseCost => _estimatedKwh * _tariffRate;
+  double get _gstAmount => _baseCost * 0.18;
+  double get _totalPayable => _baseCost + _gstAmount;
+
+  // AUTO-CALCULATED DURATION IN MINUTES (kWh / kW * 60)
+  int get _calculatedDurationMinutes {
+    final int portKw = (_selectedPort['kw'] as int?) ?? 120;
+    final double hoursNeeded = _estimatedKwh / portKw;
+    final int mins = (hoursNeeded * 60).ceil();
+    return mins < 5 ? 5 : mins; // Minimum 5 mins
+  }
+
+  void _switchStation(Map<String, dynamic> stn) {
+    setState(() {
+      _currentStation = stn;
+      _pickDefaultPort();
+    });
+  }
+
+  void _bookChargingSlot() async {
+    if (_selectedPort['isOccupied'] == true && _selectedPort['id'] != _activePortId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Port is Occupied. Please tap a GREEN Free Port."), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+
+    if (_paymentMethod == 'razorpay') {
+      final res = await RazorpayPaymentService.openCheckout(
+        context: context,
+        amount: _totalPayable,
+        purpose: "EV Charge: ${_currentStation['name']} - ${_selectedPort['id']}",
+      );
+      if (res != null && res['status'] == 'SUCCESS') {
+        _startChargingSession(res['payment_id'] ?? "pay_rzp_${Random().nextInt(89999) + 10000}");
+      }
+    } else {
+      EnergoUnifiedService().payWithWallet(_totalPayable, "EV Fast Charge (${_selectedPort['id']})");
+      _startChargingSession("pay_wallet_${Random().nextInt(89999) + 10000}");
+    }
+  }
+
+  void _startChargingSession(String txnId) {
+    final duration = _calculatedDurationMinutes;
+
+    // LOCK IN CENTRAL UNIFIED SERVICE
+    EnergoUnifiedService().bookAmenity(
+      stationId: _currentStation['id'] as String,
+      category: 'ports',
+      itemId: _selectedPort['id'] as String,
+      durationMinutes: duration,
+      bookedBy: 'Anamika C. (${_selectedVehicle.split(" ").first})',
+    );
+
+    setState(() {
+      _selectedPort['isOccupied'] = true;
+      _isSessionActive = true;
+      _activePortId = _selectedPort['id'];
+      _remainingSeconds = duration * 60;
+    });
+
+    _sessionTimer?.cancel();
+    _sessionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_remainingSeconds > 0) {
+        setState(() => _remainingSeconds--);
+      } else {
+        _endChargingSession();
+      }
+    });
+
+    final invId = "GST-EV-${Random().nextInt(89999) + 10000}";
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF131D31),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFF00E676), width: 1.5)),
+        title: const Row(
+          children: [
+            Icon(Icons.bolt, color: Color(0xFF00E676), size: 28),
+            SizedBox(width: 8),
+            Text("Fast Charging Active!", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Tax Slip: $invId • Txn: $txnId", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+            const Divider(color: Colors.white12, height: 16),
+            Text("Station: ${_currentStation['name']}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            Text("Port: ${_selectedPort['id']} (${_selectedPort['power']})", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12.5)),
+            const SizedBox(height: 4),
+            Text("Target Energy: ${_estimatedKwh.toStringAsFixed(1)} kWh (~${_chargePercentage.toInt()}%)", style: const TextStyle(color: Color(0xFF00F0FF), fontSize: 12, fontWeight: FontWeight.bold)),
+            Text("⏱️ Auto Calculated Session: $duration Mins", style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text("Total Paid: ₹ ${_totalPayable.toStringAsFixed(2)} (GST 18% Incl.)", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 14)),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676), foregroundColor: Colors.black),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Plug-In & Monitor", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }
 
-  // ==========================================================
-  // FORMAT DATE
-  // ==========================================================
+  void _endChargingSession() {
+    _sessionTimer?.cancel();
+    setState(() {
+      _isSessionActive = false;
+      _selectedPort['isOccupied'] = false;
+      _activePortId = null;
+    });
 
-  String get formattedDate {
-    if (selectedDate == null) {
-      return "Select Date";
-    }
-
-    final day =
-        selectedDate!.day.toString().padLeft(2, '0');
-
-    final month =
-        selectedDate!.month.toString().padLeft(2, '0');
-
-    final year =
-        selectedDate!.year.toString();
-
-    return "$day/$month/$year";
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("🟢 Charging Session Completed! Port is now Released & FREE."), backgroundColor: Color(0xFF00E676)),
+    );
   }
 
-  // ==========================================================
-  // FORMAT TIME
-  // ==========================================================
-
-  String get formattedTime {
-    if (selectedTime == null) {
-      return "Select Time";
-    }
-
-    return selectedTime!.format(context);
+  String _formatTimer(int totalSecs) {
+    final mins = (totalSecs ~/ 60).toString().padLeft(2, '0');
+    final secs = (totalSecs % 60).toString().padLeft(2, '0');
+    return "$mins:$secs";
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor:
-          AppColors.background,
+    final service = EnergoUnifiedService();
 
-      body: AnimatedEVBackground(
-        child: SafeArea(
-          child: Column(
-            children: [
-              // =================================================
-              // HEADER
-              // =================================================
+    return AnimatedBuilder(
+      animation: service,
+      builder: (context, child) {
+        final stationsList = service.stations;
+        final ports = _currentStation['ports'] as List;
 
-              Padding(
-                padding:
-                    const EdgeInsets.fromLTRB(
-                  15,
-                  12,
-                  20,
-                  10,
-                ),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        color: Colors.white,
+        return Scaffold(
+          backgroundColor: const Color(0xFF080E1A),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF10192B),
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: const Text("Smart AI Fast DC EV Charging", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ACTIVE LIVE COUNTDOWN BANNER
+                  if (_isSessionActive) ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0x2600E676),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFF00E676), width: 1.5),
                       ),
-                    ),
-
-                    const SizedBox(width: 5),
-
-                    const Text(
-                      "Book Charging",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight:
-                            FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // =================================================
-              // CONTENT
-              // =================================================
-
-              Expanded(
-                child: SingleChildScrollView(
-                  padding:
-                      const EdgeInsets.fromLTRB(
-                    20,
-                    5,
-                    20,
-                    30,
-                  ),
-
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-
-                    children: [
-                      // =================================================
-                      // STATION HERO CARD
-                      // =================================================
-
-                      Container(
-                        width: double.infinity,
-                        padding:
-                            const EdgeInsets.all(20),
-
-                        decoration:
-                            BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius:
-                              BorderRadius.circular(
-                            25,
-                          ),
-                          border: Border.all(
-                            color: AppColors
-                                .primaryGreen
-                                .withOpacity(.20),
-                          ),
-                        ),
-
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  height: 65,
-                                  width: 65,
-
-                                  decoration:
-                                      BoxDecoration(
-                                    color: AppColors
-                                        .primaryGreen
-                                        .withOpacity(
-                                            .14),
-                                    borderRadius:
-                                        BorderRadius
-                                            .circular(
-                                      18,
-                                    ),
-                                  ),
-
-                                  child:
-                                      const Icon(
-                                    Icons.ev_station,
-                                    color: AppColors
-                                        .primaryGreen,
-                                    size: 34,
-                                  ),
-                                ),
-
-                                const SizedBox(
-                                  width: 15,
-                                ),
-
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment
-                                            .start,
-                                    children: [
-                                      Text(
-                                        widget.stationName,
-                                        style:
-                                            const TextStyle(
-                                          color: Colors
-                                              .white,
-                                          fontSize: 19,
-                                          fontWeight:
-                                              FontWeight
-                                                  .bold,
-                                        ),
-                                      ),
-
-                                      const SizedBox(
-                                        height: 6,
-                                      ),
-
-                                      Text(
-                                        widget.stationLocation,
-                                        style:
-                                            const TextStyle(
-                                          color: Colors
-                                              .white54,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(
-                              height: 20,
-                            ),
-
-                            Row(
-                              children: [
-                                infoChip(
-                                  Icons.bolt,
-                                  widget.chargingType,
-                                ),
-
-                                const SizedBox(
-                                  width: 10,
-                                ),
-
-                                infoChip(
-                                  Icons.currency_rupee,
-                                  widget.price,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 28),
-
-                      // =================================================
-                      // PORT SELECTION
-                      // =================================================
-
-                      const Text(
-                        "Select Charging Port",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight:
-                              FontWeight.bold,
-                        ),
-                      ),
-
-                      const SizedBox(height: 15),
-
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics:
-                            const NeverScrollableScrollPhysics(),
-
-                        itemCount: 4,
-
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: 2.3,
-                        ),
-
-                        itemBuilder:
-                            (context, index) {
-                          final port =
-                              index + 1;
-
-                          final selected =
-                              selectedPort ==
-                                  port;
-
-                          return GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                selectedPort =
-                                    port;
-                              });
-                            },
-
-                            child: Container(
-                              decoration:
-                                  BoxDecoration(
-                                color: selected
-                                    ? AppColors
-                                        .primaryGreen
-                                        .withOpacity(
-                                            .16)
-                                    : AppColors.card,
-
-                                borderRadius:
-                                    BorderRadius
-                                        .circular(
-                                  18,
-                                ),
-
-                                border:
-                                    Border.all(
-                                  color: selected
-                                      ? AppColors
-                                          .primaryGreen
-                                      : Colors
-                                          .transparent,
-                                ),
-                              ),
-
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment
-                                        .center,
-
-                                children: [
-                                  Icon(
-                                    Icons
-                                        .power,
-                                    color: AppColors
-                                        .primaryGreen,
-                                    size: 20,
-                                  ),
-
-                                  const SizedBox(
-                                    width: 8,
-                                  ),
-
-                                  Text(
-                                    "Port $port",
-                                    style:
-                                        const TextStyle(
-                                      color: Colors
-                                          .white,
-                                      fontWeight:
-                                          FontWeight
-                                              .bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-
-                      const SizedBox(height: 28),
-
-                      // =================================================
-                      // DATE & TIME
-                      // =================================================
-
-                      const Text(
-                        "Select Date & Time",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight:
-                              FontWeight.bold,
-                        ),
-                      ),
-
-                      const SizedBox(height: 15),
-
-                      Row(
+                      child: Row(
                         children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(color: Color(0xFF00E676), shape: BoxShape.circle),
+                            child: const Icon(Icons.bolt, color: Colors.black, size: 20),
+                          ),
+                          const SizedBox(width: 12),
                           Expanded(
-                            child: selectionCard(
-                              icon:
-                                  Icons.calendar_month,
-                              title:
-                                  "Date",
-                              value:
-                                  formattedDate,
-                              onTap:
-                                  selectDate,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("⚡ Fast Dispensing: $_activePortId (🔴 IN-USE)", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                Text("Time Remaining: ${_formatTimer(_remainingSeconds)}", style: const TextStyle(color: Color(0xFF00E676), fontSize: 14, fontWeight: FontWeight.bold)),
+                              ],
                             ),
                           ),
-
-                          const SizedBox(
-                            width: 12,
-                          ),
-
-                          Expanded(
-                            child: selectionCard(
-                              icon:
-                                  Icons.access_time,
-                              title:
-                                  "Time",
-                              value:
-                                  formattedTime,
-                              onTap:
-                                  selectTime,
+                          GestureDetector(
+                            onTap: _endChargingSession,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(8)),
+                              child: const Text("Release", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
-                      const SizedBox(height: 28),
+                  // 1. NEARBY SUPERHUBS
+                  const Text("1. Select EV SuperHub", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  const SizedBox(height: 8),
 
-                      // =================================================
-                      // BOOKING SUMMARY
-                      // =================================================
+                  SizedBox(
+                    height: 86,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: stationsList.length,
+                      itemBuilder: (context, i) {
+                        final stn = stationsList[i];
+                        final isSel = _currentStation['id'] == stn['id'];
 
-                      Container(
-                        width: double.infinity,
-
-                        padding:
-                            const EdgeInsets.all(
-                          20,
-                        ),
-
-                        decoration:
-                            BoxDecoration(
-                          color:
-                              AppColors.darkGreen
-                                  .withOpacity(
-                                      .28),
-
-                          borderRadius:
-                              BorderRadius.circular(
-                            22,
+                        return GestureDetector(
+                          onTap: () => _switchStation(stn),
+                          child: Container(
+                            width: 220,
+                            margin: const EdgeInsets.only(right: 10),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isSel ? const Color(0x3300E676) : const Color(0xFF131D31),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: isSel ? const Color(0xFF00E676) : Colors.white12, width: isSel ? 1.5 : 1),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(stn['name'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isSel ? const Color(0xFF00E676) : Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                const SizedBox(height: 2),
+                                Text(stn['area'], style: const TextStyle(color: Colors.white54, fontSize: 9.5)),
+                                const SizedBox(height: 4),
+                                Text("₹${stn['rate']}/kWh • Fast DC Active", style: const TextStyle(color: Color(0xFF00F0FF), fontSize: 11, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
                           ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-                          border: Border.all(
-                            color: AppColors
-                                .primaryGreen
-                                .withOpacity(.18),
+                  // 2. PORTS IN CURRENT STATION
+                  Text("2. Select Port in ${_currentStation['name']}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  const SizedBox(height: 8),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: ports.map((item) {
+                      final p = item as Map<String, dynamic>;
+                      final isOcc = p['isOccupied'] as bool;
+                      final isSel = _selectedPort['id'] == p['id'];
+
+                      return GestureDetector(
+                        onTap: () {
+                          if (isOcc && p['id'] != _activePortId) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text("${p['id']} is Occupied (In-Use)"), backgroundColor: Colors.redAccent),
+                            );
+                          } else {
+                            setState(() => _selectedPort = p);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isOcc
+                                ? const Color(0x26FF5252)
+                                : isSel
+                                    ? const Color(0x3300E676)
+                                    : const Color(0xFF131D31),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isOcc ? Colors.redAccent : isSel ? const Color(0xFF00E676) : Colors.white12,
+                              width: isSel ? 1.8 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.bolt, color: isOcc ? Colors.redAccent : const Color(0xFF00E676), size: 16),
+                              const SizedBox(width: 6),
+                              Text("${p['id']} (${p['power']})", style: TextStyle(color: isOcc ? Colors.redAccent : Colors.white, fontWeight: FontWeight.bold, fontSize: 11.5)),
+                              const SizedBox(width: 6),
+                              Text(isOcc ? "🔴" : "🟢", style: const TextStyle(fontSize: 10)),
+                            ],
                           ),
                         ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
 
-                        child: Column(
+                  // 3. EV VEHICLE
+                  const Text("3. Select EV Vehicle", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  const SizedBox(height: 6),
+
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: _vehicles.map((v) {
+                      final isSel = _selectedVehicle == v;
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedVehicle = v),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSel ? const Color(0xFF00E676) : const Color(0xFF131D31),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: isSel ? const Color(0xFF00E676) : Colors.white12),
+                          ),
+                          child: Text(
+                            v,
+                            style: TextStyle(color: isSel ? Colors.black : Colors.white70, fontSize: 11, fontWeight: isSel ? FontWeight.bold : FontWeight.normal),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 4. ENERGY TARGET SLIDER
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("4. Energy Target Target (kWh / %)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                      Text("${_estimatedKwh.toStringAsFixed(1)} kWh (~${_chargePercentage.toInt()}%)", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12)),
+                    ],
+                  ),
+                  Slider(
+                    value: _chargePercentage,
+                    min: 20,
+                    max: 100,
+                    divisions: 8,
+                    activeColor: const Color(0xFF00E676),
+                    inactiveColor: Colors.white12,
+                    onChanged: (v) => setState(() => _chargePercentage = v),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // 5. AUTO-CALCULATED DURATION BANNER (AI SMART CALCULATION)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0x2600F0FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF00F0FF)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
                           children: [
-                            summaryRow(
-                              "Station",
-                              widget.stationName,
-                            ),
-
-                            summaryRow(
-                              "Charging Type",
-                              widget.chargingType,
-                            ),
-
-                            summaryRow(
-                              "Selected Port",
-                              "Port $selectedPort",
-                            ),
-
-                            summaryRow(
-                              "Price",
-                              widget.price,
+                            const Icon(Icons.timer, color: Color(0xFF00F0FF), size: 20),
+                            const SizedBox(width: 8),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("Auto-Calculated Fast Charge Time:", style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                Text("Based on ${_selectedPort['power']} Output", style: const TextStyle(color: Colors.white38, fontSize: 9.5)),
+                              ],
                             ),
                           ],
                         ),
-                      ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: const Color(0xFF00F0FF), borderRadius: BorderRadius.circular(8)),
+                          child: Text("⏱️ $_calculatedDurationMinutes Mins", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-                      const SizedBox(height: 30),
-
-                      // =================================================
-                      // BOOK BUTTON
-                      // =================================================
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-
-                        child: ElevatedButton(
-                          onPressed:
-                              bookingLoading
-                                  ? null
-                                  : bookChargingSlot,
-
-                          style:
-                              ElevatedButton.styleFrom(
-                            backgroundColor:
-                                AppColors
-                                    .primaryGreen,
-
-                            foregroundColor:
-                                Colors.black,
-
-                            disabledBackgroundColor:
-                                Colors.white10,
-
-                            shape:
-                                RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius
-                                      .circular(
-                                20,
+                  // 6. PAYMENT METHOD
+                  const Text("5. Payment Gateway", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      {'id': 'razorpay', 'name': 'Razorpay UPI/Card', 'color': const Color(0xFF528FF0)},
+                      {'id': 'wallet', 'name': 'Wallet (5% Back)', 'color': const Color(0xFF00E676)},
+                      {'id': 'cash', 'name': 'Cash on Spot', 'color': Colors.amber},
+                    ].map((m) {
+                      final isSel = _paymentMethod == (m['id'] as String);
+                      final col = m['color'] as Color;
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _paymentMethod = m['id'] as String),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSel ? col.withOpacity(0.2) : const Color(0xFF131D31),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: isSel ? col : Colors.white12),
+                            ),
+                            child: Center(
+                              child: Text(
+                                (m['name'] as String).split(" ").first,
+                                style: TextStyle(color: isSel ? col : Colors.white70, fontSize: 11, fontWeight: isSel ? FontWeight.bold : FontWeight.normal),
                               ),
                             ),
                           ),
-
-                          child: bookingLoading
-                              ? const SizedBox(
-                                  height: 24,
-                                  width: 24,
-                                  child:
-                                      CircularProgressIndicator(
-                                    color: Colors
-                                        .black,
-                                  ),
-                                )
-                              : const Text(
-                                  "BOOK CHARGING SLOT",
-                                  style:
-                                      TextStyle(
-                                    fontSize: 15,
-                                    fontWeight:
-                                        FontWeight
-                                            .bold,
-                                  ),
-                                ),
                         ),
-                      ),
-                    ],
+                      );
+                    }).toList(),
                   ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+                  const SizedBox(height: 22),
 
-  // ===========================================================
-  // INFO CHIP
-  // ===========================================================
-
-  Widget infoChip(
-    IconData icon,
-    String text,
-  ) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 8,
-      ),
-
-      decoration: BoxDecoration(
-        color: Colors.black26,
-        borderRadius:
-            BorderRadius.circular(15),
-      ),
-
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color:
-                AppColors.primaryGreen,
-            size: 17,
-          ),
-
-          const SizedBox(width: 6),
-
-          Text(
-            text,
-            style:
-                const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight:
-                  FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ===========================================================
-  // DATE/TIME CARD
-  // ===========================================================
-
-  Widget selectionCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-
-      child: Container(
-        padding:
-            const EdgeInsets.all(16),
-
-        decoration: BoxDecoration(
-          color: AppColors.card,
-
-          borderRadius:
-              BorderRadius.circular(20),
-
-          border: Border.all(
-            color: Colors.white10,
-          ),
-        ),
-
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-
-          children: [
-            Icon(
-              icon,
-              color:
-                  AppColors.primaryGreen,
-              size: 22,
-            ),
-
-            const SizedBox(height: 10),
-
-            Text(
-              title,
-
-              style:
-                  const TextStyle(
-                color: Colors.white54,
-                fontSize: 12,
-              ),
-            ),
-
-            const SizedBox(height: 5),
-
-            Text(
-              value,
-
-              maxLines: 1,
-
-              overflow:
-                  TextOverflow.ellipsis,
-
-              style:
-                  const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight:
-                    FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ===========================================================
-  // SUMMARY ROW
-  // ===========================================================
-
-  Widget summaryRow(
-    String title,
-    String value,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.only(bottom: 13),
-
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style:
-                  const TextStyle(
-                color: Colors.white54,
-                fontSize: 13,
+                  // 7. FIXED BOTTOM ACTION BAR
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131D31),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF00E676), width: 1.2),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("Total (${_selectedPort['id']} • $_calculatedDurationMinutes Mins)", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+                            Text("₹ ${_totalPayable.toStringAsFixed(2)}", style: const TextStyle(color: Color(0xFF00E676), fontSize: 18, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        GestureDetector(
+                          onTap: _bookChargingSlot,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00E676),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.bolt, color: Colors.black, size: 18),
+                                const SizedBox(width: 4),
+                                Text(_isSessionActive ? "Extend Slot" : "Pay & Plug-In", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-
-          Expanded(
-            child: Text(
-              value,
-              textAlign:
-                  TextAlign.right,
-
-              maxLines: 1,
-
-              overflow:
-                  TextOverflow.ellipsis,
-
-              style:
-                  const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight:
-                    FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

@@ -47,5 +47,5 @@ flutter:
   assets:
 
     - assets/images/logoEnergo.png
-
+    - assets/images/home/
   
