@@ -1,91 +1,144 @@
 import 'package:flutter/material.dart';
+import 'driver_login_screen.dart';
+import 'broker_login_screen.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
 
+  void _showAdminPortModal(BuildContext context, String title, String roleBadge) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF161F30),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFF00E5FF))),
+        title: Row(
+          children: [
+            const Icon(Icons.shield, color: Color(0xFF00E5FF), size: 22),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Role: $roleBadge", style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 10),
+            const Text(
+              "Station Sub-Admin & Supreme Admin HQ enterprise terminals run securely on Enterprise Admin Port 8081 (http://localhost:8081).",
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("OK", style: TextStyle(fontWeight: FontWeight.bold)),
+          )
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF080E1A),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      backgroundColor: const Color(0xFF0A0E17),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF111827),
+        elevation: 0,
+        title: const Row(
           children: [
-            // HEADER LOGO
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF131D31),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF00E676), width: 1.5),
-                ),
-                child: const Icon(Icons.bolt, color: Color(0xFF00E676), size: 36),
+            Icon(Icons.bolt, color: Color(0xFF00E5FF), size: 24),
+            SizedBox(width: 8),
+            Text("EnerGo Nexus Ecosystem", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF162544), Color(0xFF0F172A)]),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.electric_bolt, color: Color(0xFF00E5FF), size: 36),
+                  SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Select Operating Portal", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text("MNC-Grade Smart EV Mobility & 4 Mega SuperHubs Grid", style: TextStyle(color: Colors.white60, fontSize: 11)),
+                      ],
+                    ),
+                  )
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            const Center(
-              child: Text("EnerGo SuperApp Gateway", style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 4),
-            const Center(
-              child: Text("Select your portal role to continue", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 20),
 
-            // 1. PASSENGER PORTAL
-            _roleCard(
-              context,
-              title: "Passenger / EV Commuter",
-              subtitle: "Book EV Rides, DC Fast Charging, Parking & 5% Cashback",
-              icon: Icons.person,
-              badge: "PUBLIC",
-              color: const Color(0xFF00E676),
-              onTap: () {
-                Navigator.pushReplacementNamed(context, '/home');
-              },
+            _buildRoleCard(
+              title: "Passenger SuperApp Portal",
+              sub: "Book EV Rides, Reserve SuperHub Fast DC Ports & Snooze Pods, 5% Cashback",
+              icon: Icons.person_pin_circle,
+              color: const Color(0xFF00E5FF),
+              badge: "PUBLIC RIDER",
+              onTap: () => Navigator.pushNamed(context, '/home'),
             ),
-            const SizedBox(height: 14),
 
-            // 2. DRIVER CAPTAIN PORTAL
-            _roleCard(
-              context,
-              title: "EV Fleet Captain (Driver)",
-              subtitle: "Live Radar Dispatch, Turn-by-Turn GPS, Earnings & Telemetry",
+            _buildRoleCard(
+              title: "Driver Cockpit (Solo & Fleet)",
+              sub: "Live GPS Radar, 15s Ride Accept, EV Telemetry, SuperHub Pass, Daily Wages",
               icon: Icons.local_taxi,
-              badge: "CAPTAIN",
-              color: const Color(0xFF00F0FF),
+              color: const Color(0xFF10B981),
+              badge: "EV DRIVER",
               onTap: () {
-                Navigator.pushReplacementNamed(context, '/driver');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (ctx) => const DriverLoginScreen()),
+                );
               },
             ),
-            const SizedBox(height: 14),
 
-            // 3. SUB-ADMIN HUB OPERATOR
-            _roleCard(
-              context,
-              title: "SuperHub Station Sub-Admin",
-              subtitle: "Manage Port Chargers, Barrier Gates, Snooze Pods & Local Tariffs",
-              icon: Icons.admin_panel_settings,
-              badge: "STATION OPERATOR",
-              color: const Color(0xFFFFB703),
+            _buildRoleCard(
+              title: "Fleet Broker Enterprise ERP",
+              sub: "Manage 10-500+ EVs, Add Driver/Vehicle KYC, Central Vault, 1-Tap Payroll",
+              icon: Icons.business_center,
+              color: const Color(0xFFFFD54F),
+              badge: "FLEET BROKER",
               onTap: () {
-                Navigator.pushReplacementNamed(context, '/sub-admin');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (ctx) => const BrokerLoginScreen()),
+                );
               },
             ),
-            const SizedBox(height: 14),
 
-            // 4. SUPREME ADMIN ENTERPRISE HQ
-            _roleCard(
-              context,
-              title: "Super Admin Enterprise HQ",
-              subtitle: "Fleet Governance, Dynamic Surge, GST Audit & Platform Analytics",
+            _buildRoleCard(
+              title: "Station Sub-Admin Terminal",
+              sub: "Local SuperHub Control: 8 DC Chargers, Ultrasonic Parking Bay Barriers, Snooze Pods",
+              icon: Icons.hub,
+              color: const Color(0xFFEC4899),
+              badge: "STATION SUB-ADMIN",
+              onTap: () => _showAdminPortModal(context, "Station Sub-Admin Terminal", "Port 8081 Sub-Admin Access"),
+            ),
+
+            _buildRoleCard(
+              title: "Supreme Admin Master HQ",
+              sub: "Master City Grid Load (1.84 MW), Global Dispatch Radar, 1-Click KYC Approvals",
               icon: Icons.shield,
-              badge: "ENTERPRISE",
-              color: const Color(0xFFA855F7),
-              onTap: () {
-                Navigator.pushReplacementNamed(context, '/super-admin');
-              },
+              color: const Color(0xFF38BDF8),
+              badge: "SUPREME ROOT ACCESS",
+              onTap: () => _showAdminPortModal(context, "Supreme Admin Master HQ", "Port 8081 Master HQ Access"),
             ),
           ],
         ),
@@ -93,61 +146,45 @@ class RoleSelectionScreen extends StatelessWidget {
     );
   }
 
-  Widget _roleCard(
-    BuildContext context, {
+  Widget _buildRoleCard({
     required String title,
-    required String subtitle,
+    required String sub,
     required IconData icon,
-    required String badge,
     required Color color,
+    required String badge,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF131D31),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.4), width: 1.2),
-          gradient: LinearGradient(
-            colors: [const Color(0xFF131D31), color.withOpacity(0.12)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161F30),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(16),
+        onTap: onTap,
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+          child: Icon(icon, color: color, size: 24),
         ),
-        child: Row(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
             Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: color.withOpacity(0.18), shape: BoxShape.circle),
-              child: Icon(icon, color: color, size: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+              child: Text(badge, style: TextStyle(color: color, fontSize: 8.5, fontWeight: FontWeight.bold)),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                        child: Text(badge, style: TextStyle(color: color, fontSize: 8.5, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.arrow_forward_ios, color: Colors.white38, size: 14),
           ],
         ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(sub, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+        ),
+        trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white38, size: 14),
       ),
     );
   }

@@ -40,7 +40,7 @@ class WalletSummaryCard extends StatelessWidget {
                   children: [
                     const Row(
                       children: [
-                        Text("EnerGo Cash Balance", style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+                        Text("EnerGo Cashback Balance", style: TextStyle(color: Colors.white54, fontSize: 11.5)),
                         SizedBox(width: 6),
                         Icon(Icons.stars, color: Color(0xFF00E676), size: 14),
                       ],
@@ -48,23 +48,24 @@ class WalletSummaryCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       "₹ ${service.walletBalance.toStringAsFixed(2)}",
-                      style: const TextStyle(color: Color(0xFF00E676), fontSize: 22, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Color(0xFF00E676), fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 2),
-                    const Text("⚡ 5% Auto-Cashback on all Rides & Hubs", style: TextStyle(color: Color(0xFF00F0FF), fontSize: 10, fontWeight: FontWeight.w600)),
+                    const Text("⚡ Earn 5% Auto-Cashback on every Razorpay Pay", style: TextStyle(color: Color(0xFF00F0FF), fontSize: 10, fontWeight: FontWeight.w600)),
                   ],
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00E676),
+                    color: const Color(0x2600E676),
                     borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF00E676)),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.add, color: Colors.black, size: 16),
+                      Icon(Icons.redeem, color: Color(0xFF00E676), size: 16),
                       SizedBox(width: 4),
-                      Text("Add Money", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11.5)),
+                      Text("Redeemable", style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 11)),
                     ],
                   ),
                 ),

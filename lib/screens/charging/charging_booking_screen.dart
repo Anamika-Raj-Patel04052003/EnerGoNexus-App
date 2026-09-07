@@ -26,7 +26,8 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
   late Map<String, dynamic> _currentStation;
   late Map<String, dynamic> _selectedPort;
   String _selectedVehicle = "Tata Nexon EV (40 kWh)";
-  double _chargePercentage = 60.0;
+  int _selectedHours = 1;
+  TimeOfDay _startTime = TimeOfDay.now();
   String _paymentMethod = "razorpay";
 
   // ACTIVE CHARGING SESSION
@@ -62,28 +63,53 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
     super.dispose();
   }
 
-  // SCIENTIFIC ENERGY & CHARGING TIME FORMULA
-  double get _batteryCapacityKwh {
-    if (_selectedVehicle.contains("50 kWh")) return 50.0;
-    if (_selectedVehicle.contains("39 kWh")) return 39.4;
-    if (_selectedVehicle.contains("24 kWh")) return 24.0;
-    if (_selectedVehicle.contains("3.7 kWh")) return 3.7;
-    if (_selectedVehicle.contains("4 kWh")) return 4.0;
-    return 40.5; // Nexon EV Max default
+  // PRICING CALCULATION (Tariff per hour based on Port kW)
+  double get _baseStationFee => 20.0;
+  double get _hourlyRate {
+    final int portKw = (_selectedPort['kw'] as int?) ?? 120;
+    if (portKw >= 120) return 180.0; // Fast DC
+    if (portKw >= 60) return 120.0;  // Rapid DC
+    return 60.0; // AC Standard
+  }
+  double get _durationCost => _selectedHours * _hourlyRate;
+  double get _totalPayable => _baseStationFee + _durationCost;
+
+  // CALCULATE END TIME
+  TimeOfDay get _endTime {
+    final int totalMinutes = _startTime.hour * 60 + _startTime.minute + (_selectedHours * 60);
+    final int endHour = (totalMinutes ~/ 60) % 24;
+    final int endMin = totalMinutes % 60;
+    return TimeOfDay(hour: endHour, minute: endMin);
   }
 
-  double get _estimatedKwh => (_chargePercentage / 100) * _batteryCapacityKwh;
-  double get _tariffRate => ((_currentStation['rate'] as num?)?.toDouble()) ?? 18.50;
-  double get _baseCost => _estimatedKwh * _tariffRate;
-  double get _gstAmount => _baseCost * 0.18;
-  double get _totalPayable => _baseCost + _gstAmount;
+  String _formatTimeOfDay(TimeOfDay time) {
+    final int hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
+    final String period = time.period == DayPeriod.am ? 'AM' : 'PM';
+    final String min = time.minute.toString().padLeft(2, '0');
+    return "$hour:$min $period";
+  }
 
-  // AUTO-CALCULATED DURATION IN MINUTES (kWh / kW * 60)
-  int get _calculatedDurationMinutes {
-    final int portKw = (_selectedPort['kw'] as int?) ?? 120;
-    final double hoursNeeded = _estimatedKwh / portKw;
-    final int mins = (hoursNeeded * 60).ceil();
-    return mins < 5 ? 5 : mins; // Minimum 5 mins
+  Future<void> _pickStartTime(BuildContext context) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _startTime,
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFF00E676),
+              onPrimary: Colors.black,
+              surface: Color(0xFF131D31),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _startTime = picked);
+    }
   }
 
   void _switchStation(Map<String, dynamic> stn) {
@@ -96,35 +122,57 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
   void _bookChargingSlot() async {
     if (_selectedPort['isOccupied'] == true && _selectedPort['id'] != _activePortId) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Port is Occupied. Please tap a GREEN Free Port."), backgroundColor: Colors.redAccent),
+        const SnackBar(content: Text("This Port is currently BOOKED (🔴). Please select a GREEN (🟢) Free Port."), backgroundColor: Colors.redAccent),
       );
       return;
     }
 
-    if (_paymentMethod == 'razorpay') {
+    final service = EnergoUnifiedService();
+
+    if (_paymentMethod == 'wallet') {
+      if (!service.canPayWithWallet(_totalPayable)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Insufficient Cashback (₹${service.walletBalance.toStringAsFixed(2)}). Pay via Razorpay to earn 5% Cashback!"),
+            backgroundColor: Colors.amber,
+          ),
+        );
+        return;
+      }
+      service.payWithWallet(_totalPayable, "EV Charging (${_selectedPort['id']})");
+      _startChargingSession("pay_wallet_${Random().nextInt(89999) + 10000}", earnedCashback: 0.0);
+    } else {
+      // RAZORPAY PAYMENT (5% CASHBACK)
       final res = await RazorpayPaymentService.openCheckout(
         context: context,
         amount: _totalPayable,
-        purpose: "EV Charge: ${_currentStation['name']} - ${_selectedPort['id']}",
+        purpose: "EV Charge: ${_currentStation['name']} - ${_selectedPort['id']} [${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_endTime)}]",
       );
+
       if (res != null && res['status'] == 'SUCCESS') {
-        _startChargingSession(res['payment_id'] ?? "pay_rzp_${Random().nextInt(89999) + 10000}");
+        final payId = res['payment_id'] ?? "pay_rzp_${Random().nextInt(89999) + 10000}";
+
+        // 🌟 5% CASHBACK AUTO-CREDIT
+        service.recordRazorpayPaymentAndCreditCashback(
+          amountPaid: _totalPayable,
+          purpose: "EV Charging (${_selectedPort['id']})",
+          paymentId: payId,
+        );
+
+        _startChargingSession(payId, earnedCashback: _totalPayable * 0.05);
       }
-    } else {
-      EnergoUnifiedService().payWithWallet(_totalPayable, "EV Fast Charge (${_selectedPort['id']})");
-      _startChargingSession("pay_wallet_${Random().nextInt(89999) + 10000}");
     }
   }
 
-  void _startChargingSession(String txnId) {
-    final duration = _calculatedDurationMinutes;
+  void _startChargingSession(String txnId, {required double earnedCashback}) {
+    final durationMins = _selectedHours * 60;
 
-    // LOCK IN CENTRAL UNIFIED SERVICE
+    // LOCK PORT TO 🔴 RED FOR EXACT TIME DURATION
     EnergoUnifiedService().bookAmenity(
       stationId: _currentStation['id'] as String,
       category: 'ports',
       itemId: _selectedPort['id'] as String,
-      durationMinutes: duration,
+      durationMinutes: durationMins,
       bookedBy: 'Anamika C. (${_selectedVehicle.split(" ").first})',
     );
 
@@ -132,7 +180,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
       _selectedPort['isOccupied'] = true;
       _isSessionActive = true;
       _activePortId = _selectedPort['id'];
-      _remainingSeconds = duration * 60;
+      _remainingSeconds = durationMins * 60;
     });
 
     _sessionTimer?.cancel();
@@ -145,7 +193,8 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
       }
     });
 
-    final invId = "GST-EV-${Random().nextInt(89999) + 10000}";
+    final invId = "GST-CHG-${Random().nextInt(89999) + 10000}";
+    final timeSlotText = "${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_endTime)}";
 
     showDialog(
       context: context,
@@ -157,7 +206,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
           children: [
             Icon(Icons.bolt, color: Color(0xFF00E676), size: 28),
             SizedBox(width: 8),
-            Text("Fast Charging Active!", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text("Charging Port Locked & Reserved!", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Column(
@@ -167,12 +216,24 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
             Text("Tax Slip: $invId • Txn: $txnId", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
             const Divider(color: Colors.white12, height: 16),
             Text("Station: ${_currentStation['name']}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-            Text("Port: ${_selectedPort['id']} (${_selectedPort['power']})", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12.5)),
+            Text("Port: ${_selectedPort['id']} (${_selectedPort['power']}) 🔴 LOCKED", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12.5)),
             const SizedBox(height: 4),
-            Text("Target Energy: ${_estimatedKwh.toStringAsFixed(1)} kWh (~${_chargePercentage.toInt()}%)", style: const TextStyle(color: Color(0xFF00F0FF), fontSize: 12, fontWeight: FontWeight.bold)),
-            Text("⏱️ Auto Calculated Session: $duration Mins", style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Text("Total Paid: ₹ ${_totalPayable.toStringAsFixed(2)} (GST 18% Incl.)", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 14)),
+            Text("⏰ Reserved Slot: $timeSlotText ($_selectedHours Hours)", style: const TextStyle(color: Color(0xFF00F0FF), fontSize: 12, fontWeight: FontWeight.bold)),
+            Text("Total Paid: ₹ ${_totalPayable.toStringAsFixed(2)}", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 14)),
+            if (earnedCashback > 0) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(color: const Color(0x2600E676), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF00E676))),
+                child: Row(
+                  children: [
+                    const Icon(Icons.stars, color: Color(0xFF00E676), size: 16),
+                    const SizedBox(width: 6),
+                    Text("+₹${earnedCashback.toStringAsFixed(2)} (5% Cashback) Credited!", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 11)),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -195,7 +256,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("🟢 Charging Session Completed! Port is now Released & FREE."), backgroundColor: Color(0xFF00E676)),
+      const SnackBar(content: Text("🟢 Time Slot Completed! Port is now Released & FREE (Green)."), backgroundColor: Color(0xFF00E676)),
     );
   }
 
@@ -214,6 +275,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
       builder: (context, child) {
         final stationsList = service.stations;
         final ports = _currentStation['ports'] as List;
+        final bool canPayWithWallet = service.canPayWithWallet(_totalPayable);
 
         return Scaffold(
           backgroundColor: const Color(0xFF080E1A),
@@ -224,7 +286,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
-            title: const Text("Smart AI Fast DC EV Charging", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            title: const Text("EV Charging Port Time-Slot Booking", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ),
           body: SafeArea(
             child: SingleChildScrollView(
@@ -232,7 +294,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ACTIVE LIVE COUNTDOWN BANNER
+                  // ACTIVE COUNTDOWN BANNER
                   if (_isSessionActive) ...[
                     Container(
                       padding: const EdgeInsets.all(14),
@@ -253,7 +315,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text("⚡ Fast Dispensing: $_activePortId (🔴 IN-USE)", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                Text("⚡ Charging Active: $_activePortId (🔴 LOCKED)", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
                                 Text("Time Remaining: ${_formatTimer(_remainingSeconds)}", style: const TextStyle(color: Color(0xFF00E676), fontSize: 14, fontWeight: FontWeight.bold)),
                               ],
                             ),
@@ -272,7 +334,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                     const SizedBox(height: 16),
                   ],
 
-                  // 1. NEARBY SUPERHUBS
+                  // 1. SELECT HUB
                   const Text("1. Select EV SuperHub", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
                   const SizedBox(height: 8),
 
@@ -314,8 +376,8 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 2. PORTS IN CURRENT STATION
-                  Text("2. Select Port in ${_currentStation['name']}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  // 2. LIVE PORTS GRID (🟢 GREEN FREE / 🔴 RED BOOKED)
+                  Text("2. Select Port in ${_currentStation['name']}", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
                   const SizedBox(height: 8),
 
                   Wrap(
@@ -325,12 +387,13 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                       final p = item as Map<String, dynamic>;
                       final isOcc = p['isOccupied'] as bool;
                       final isSel = _selectedPort['id'] == p['id'];
+                      final col = isOcc ? Colors.redAccent : const Color(0xFF00E676);
 
                       return GestureDetector(
                         onTap: () {
                           if (isOcc && p['id'] != _activePortId) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text("${p['id']} is Occupied (In-Use)"), backgroundColor: Colors.redAccent),
+                              SnackBar(content: Text("${p['id']} is currently Booked (🔴). Choose a Free Port (🟢)."), backgroundColor: Colors.redAccent),
                             );
                           } else {
                             setState(() => _selectedPort = p);
@@ -346,18 +409,18 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                                     : const Color(0xFF131D31),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: isOcc ? Colors.redAccent : isSel ? const Color(0xFF00E676) : Colors.white12,
+                              color: col,
                               width: isSel ? 1.8 : 1.0,
                             ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.bolt, color: isOcc ? Colors.redAccent : const Color(0xFF00E676), size: 16),
+                              Icon(Icons.bolt, color: col, size: 16),
                               const SizedBox(width: 6),
                               Text("${p['id']} (${p['power']})", style: TextStyle(color: isOcc ? Colors.redAccent : Colors.white, fontWeight: FontWeight.bold, fontSize: 11.5)),
                               const SizedBox(width: 6),
-                              Text(isOcc ? "🔴" : "🟢", style: const TextStyle(fontSize: 10)),
+                              Text(isOcc ? "🔴 BOOKED" : "🟢 FREE", style: TextStyle(color: col, fontSize: 9.5, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -366,8 +429,8 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 3. EV VEHICLE
-                  const Text("3. Select EV Vehicle", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  // 3. VEHICLE SELECTION
+                  const Text("3. Select Your Vehicle", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
                   const SizedBox(height: 6),
 
                   Wrap(
@@ -394,95 +457,194 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 4. ENERGY TARGET SLIDER
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text("4. Energy Target Target (kWh / %)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
-                      Text("${_estimatedKwh.toStringAsFixed(1)} kWh (~${_chargePercentage.toInt()}%)", style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12)),
-                    ],
-                  ),
-                  Slider(
-                    value: _chargePercentage,
-                    min: 20,
-                    max: 100,
-                    divisions: 8,
-                    activeColor: const Color(0xFF00E676),
-                    inactiveColor: Colors.white12,
-                    onChanged: (v) => setState(() => _chargePercentage = v),
-                  ),
-                  const SizedBox(height: 6),
+                  // 4. ADVANCE TIME-SLOT DURATION & CLOCK PICKER
+                  const Text("4. Select Charging Time Slot", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  const SizedBox(height: 8),
 
-                  // 5. AUTO-CALCULATED DURATION BANNER (AI SMART CALCULATION)
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: const Color(0x2600F0FF),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF00F0FF)),
+                      color: const Color(0xFF131D31),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white12),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
                       children: [
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Icon(Icons.timer, color: Color(0xFF00F0FF), size: 20),
-                            const SizedBox(width: 8),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text("Auto-Calculated Fast Charge Time:", style: TextStyle(color: Colors.white70, fontSize: 11)),
-                                Text("Based on ${_selectedPort['power']} Output", style: const TextStyle(color: Colors.white38, fontSize: 9.5)),
-                              ],
+                            GestureDetector(
+                              onTap: () => _pickStartTime(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF080E1A),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF00E676)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text("From (Start Time)", style: TextStyle(color: Colors.white54, fontSize: 10)),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.access_time, color: Color(0xFF00E676), size: 15),
+                                        const SizedBox(width: 4),
+                                        Text(_formatTimeOfDay(_startTime), style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward, color: Colors.white38, size: 18),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF080E1A),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF00F0FF)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text("Until (End Time)", style: TextStyle(color: Colors.white54, fontSize: 10)),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.timer_off, color: Color(0xFF00F0FF), size: 15),
+                                      const SizedBox(width: 4),
+                                      Text(_formatTimeOfDay(_endTime), style: const TextStyle(color: Color(0xFF00F0FF), fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(color: const Color(0xFF00F0FF), borderRadius: BorderRadius.circular(8)),
-                          child: Text("⏱️ $_calculatedDurationMinutes Mins", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12)),
+                        const SizedBox(height: 12),
+
+                        // QUICK DURATION BUTTONS
+                        Row(
+                          children: [1, 2, 3, 4].map((h) {
+                            final isSel = _selectedHours == h;
+                            return Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _selectedHours = h),
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSel ? const Color(0xFF00E676) : const Color(0xFF080E1A),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: isSel ? const Color(0xFF00E676) : Colors.white12),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      "$h hr${h > 1 ? 's' : ''}",
+                                      style: TextStyle(
+                                        color: isSel ? Colors.black : Colors.white70,
+                                        fontSize: 11.5,
+                                        fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
 
-                  // 6. PAYMENT METHOD
-                  const Text("5. Payment Gateway", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
-                  const SizedBox(height: 6),
+                  // 5. PAYMENT METHOD
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("5. Payment Method", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: const Color(0x2600E676), borderRadius: BorderRadius.circular(6)),
+                        child: const Text("🎁 +5% Cashback on Razorpay", style: TextStyle(color: Color(0xFF00E676), fontSize: 10.5, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
                   Row(
                     children: [
-                      {'id': 'razorpay', 'name': 'Razorpay UPI/Card', 'color': const Color(0xFF528FF0)},
-                      {'id': 'wallet', 'name': 'Wallet (5% Back)', 'color': const Color(0xFF00E676)},
-                      {'id': 'cash', 'name': 'Cash on Spot', 'color': Colors.amber},
-                    ].map((m) {
-                      final isSel = _paymentMethod == (m['id'] as String);
-                      final col = m['color'] as Color;
-                      return Expanded(
+                      Expanded(
                         child: GestureDetector(
-                          onTap: () => setState(() => _paymentMethod = m['id'] as String),
+                          onTap: () => setState(() => _paymentMethod = 'razorpay'),
                           child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
-                              color: isSel ? col.withOpacity(0.2) : const Color(0xFF131D31),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: isSel ? col : Colors.white12),
+                              color: _paymentMethod == 'razorpay' ? const Color(0x33528FF0) : const Color(0xFF131D31),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: _paymentMethod == 'razorpay' ? const Color(0xFF528FF0) : Colors.white12, width: 1.5),
                             ),
-                            child: Center(
-                              child: Text(
-                                (m['name'] as String).split(" ").first,
-                                style: TextStyle(color: isSel ? col : Colors.white70, fontSize: 11, fontWeight: isSel ? FontWeight.bold : FontWeight.normal),
-                              ),
+                            child: const Column(
+                              children: [
+                                Text("Razorpay UPI/Card", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                                SizedBox(height: 2),
+                                Text("Earn 5% Cashback", style: TextStyle(color: Color(0xFF00E676), fontSize: 9.5, fontWeight: FontWeight.w600)),
+                              ],
                             ),
                           ),
                         ),
-                      );
-                    }).toList(),
+                      ),
+                      const SizedBox(width: 8),
+
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            if (!canPayWithWallet) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text("Insufficient Wallet Cashback (₹${service.walletBalance.toStringAsFixed(2)}). Pay via Razorpay to earn 5% Cashback!"),
+                                  backgroundColor: Colors.amber,
+                                ),
+                              );
+                            } else {
+                              setState(() => _paymentMethod = 'wallet');
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: canPayWithWallet
+                                  ? (_paymentMethod == 'wallet' ? const Color(0x3300E676) : const Color(0xFF131D31))
+                                  : const Color(0xFF080E1A),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: canPayWithWallet
+                                    ? (_paymentMethod == 'wallet' ? const Color(0xFF00E676) : Colors.white12)
+                                    : Colors.white10,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  "Wallet Balance",
+                                  style: TextStyle(color: canPayWithWallet ? Colors.white : Colors.white38, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  canPayWithWallet ? "₹${service.walletBalance.toStringAsFixed(2)} Available" : "Low Bal (₹${service.walletBalance.toInt()})",
+                                  style: TextStyle(color: canPayWithWallet ? const Color(0xFF00E676) : Colors.redAccent, fontSize: 9.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 22),
 
-                  // 7. FIXED BOTTOM ACTION BAR
+                  // 6. BOTTOM ACTION BAR
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -496,7 +658,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text("Total (${_selectedPort['id']} • $_calculatedDurationMinutes Mins)", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+                            Text("Total ($_selectedHours hr • ${_selectedPort['id']})", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
                             Text("₹ ${_totalPayable.toStringAsFixed(2)}", style: const TextStyle(color: Color(0xFF00E676), fontSize: 18, fontWeight: FontWeight.bold)),
                           ],
                         ),
@@ -513,7 +675,7 @@ class _ChargingBookingScreenState extends State<ChargingBookingScreen> {
                               children: [
                                 const Icon(Icons.bolt, color: Colors.black, size: 18),
                                 const SizedBox(width: 4),
-                                Text(_isSessionActive ? "Extend Slot" : "Pay & Plug-In", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13)),
+                                Text(_isSessionActive ? "Extend Slot" : "Reserve & Pay", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13)),
                               ],
                             ),
                           ),

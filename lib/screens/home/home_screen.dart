@@ -32,10 +32,10 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFF080E1A),
       body: Stack(
         children: [
-          // 1. SCROLLABLE CONTENT
+          // 1. SCROLLABLE CONTENT (PADDING AT BOTTOM SO IT DOES NOT OVERLAP FOOTER)
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 72),
+              padding: const EdgeInsets.only(bottom: 70),
               child: IndexedStack(
                 index: _currentTab,
                 children: pages,
@@ -43,12 +43,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // 2. 🌟 100% FIXED FLOATING 5-TAB FOOTER
+          // 2. 🌟 100% FIXED FLOATING 5-TAB FOOTER BAR
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            height: 72,
+            height: 70,
             child: Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF10192B),
@@ -92,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(
               isSelected ? activeIcon : icon,
               color: isSelected ? const Color(0xFF00E676) : Colors.white38,
-              size: isSelected ? 26 : 22,
+              size: isSelected ? 24 : 22,
             ),
             const SizedBox(height: 3),
             Text(
@@ -165,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // WHERE TO GO SEARCH BAR
           GestureDetector(
-            onTap: () => setState(() => _currentTab = 1),
+            onTap: () => setState(() => _currentTab = 1), // Direct open Rides Tab
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -206,11 +206,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 18),
 
-          // WALLET CARD
+          // 5% CASHBACK LOYALTY CARD
           const WalletSummaryCard(),
           const SizedBox(height: 20),
 
-          // AMENITIES
+          // SUPERHUB 4-IN-1 GRID
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -222,8 +222,43 @@ class _HomeScreenState extends State<HomeScreen> {
           const ServiceGrid(),
           const SizedBox(height: 20),
 
-          // AI MOBILITY
+          // AI MOBILITY ASSISTANT
           const AiSuggestionCard(),
+          const SizedBox(height: 20),
+
+          // FEATURED SUPERHUB CARD (DIRECT TO CHARGING TAB)
+          GestureDetector(
+            onTap: () => setState(() => _currentTab = 2),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF131D31),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: const BoxDecoration(color: Color(0x2600E676), shape: BoxShape.circle),
+                    child: const Icon(Icons.ev_station, color: Color(0xFF00E676), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("EnerGo Central SuperHub", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                        Text("📍 MP Nagar • 4 Free Ports (120kW Fast DC)", style: TextStyle(color: Colors.white54, fontSize: 10.5)),
+                        Text("⚡ ₹18.50/kWh • 🛏️ Rest Beds • 🅿️ Parking Active", style: TextStyle(color: Color(0xFF00E676), fontSize: 10.5, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios, color: Colors.white38, size: 14),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 20),
         ],
       ),

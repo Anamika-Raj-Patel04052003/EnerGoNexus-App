@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/auth/driver_login_screen.dart';
 import 'screens/auth/role_selection_screen.dart';
 import 'screens/charging/charging_booking_screen.dart';
+import 'screens/driver/driver_active_ride_screen.dart';
 import 'screens/driver/driver_main_navigation.dart';
 import 'screens/facility/cafe_table_screen.dart';
 import 'screens/facility/facility_booking_screen.dart';
@@ -10,6 +11,7 @@ import 'screens/home/home_screen.dart';
 import 'screens/parking/parking_booking_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/ride/booking_screen.dart';
+import 'screens/ride/ride_tracking_screen.dart';
 import 'screens/wallet/wallet_screen.dart';
 import 'services/energo_unified_service.dart';
 
@@ -31,23 +33,38 @@ class EnerGoNexusApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF080E1A),
         primaryColor: const Color(0xFF00E676),
       ),
+      routes: {
+        '/': (context) => const RoleSelectionScreen(),
+        '/home': (context) => const HomeScreen(),
+        '/driver-login': (context) => const DriverLoginScreen(),
+        '/driver': (context) => const DriverActiveRideScreen(),
+        '/driver-nav': (context) => const DriverMainNavigation(),
+        '/charging': (context) => const ChargingBookingScreen(),
+        '/parking': (context) => const ParkingBookingScreen(),
+        '/booking': (context) => const BookingScreen(),
+        '/tracking': (context) => const RideTrackingScreen(),
+        '/facility': (context) => const FacilityBookingScreen(),
+        '/cafe': (context) => const CafeTableScreen(),
+        '/wallet': (context) => const WalletScreen(),
+        '/profile': (context) => const ProfileScreen(),
+      },
       onGenerateRoute: (settings) {
         final routeName = settings.name ?? '/';
 
-        // 1. EXACT DRIVER APP MATCH
         if (routeName.contains('driver')) {
           if (routeName.contains('login')) {
             return MaterialPageRoute(builder: (_) => const DriverLoginScreen(), settings: settings);
           }
-          return MaterialPageRoute(builder: (_) => const DriverMainNavigation(), settings: settings);
+          return MaterialPageRoute(builder: (_) => const DriverActiveRideScreen(), settings: settings);
         }
-
-        // 2. EXACT PASSENGER APP MATCH
         if (routeName.contains('home') || routeName.contains('passenger')) {
           return MaterialPageRoute(builder: (_) => const HomeScreen(), settings: settings);
         }
         if (routeName.contains('booking')) {
           return MaterialPageRoute(builder: (_) => const BookingScreen(), settings: settings);
+        }
+        if (routeName.contains('tracking')) {
+          return MaterialPageRoute(builder: (_) => const RideTrackingScreen(), settings: settings);
         }
         if (routeName.contains('charging')) {
           return MaterialPageRoute(builder: (_) => const ChargingBookingScreen(), settings: settings);
@@ -68,7 +85,6 @@ class EnerGoNexusApp extends StatelessWidget {
           return MaterialPageRoute(builder: (_) => const ProfileScreen(), settings: settings);
         }
 
-        // 3. DEFAULT: ROLE SELECTION GATEWAY
         return MaterialPageRoute(builder: (_) => const RoleSelectionScreen(), settings: settings);
       },
     );
