@@ -41,26 +41,25 @@ class _SplashScreenState extends State<SplashScreen>
 
       vsync: this,
 
-      duration: const Duration(seconds:2),
+      duration: const Duration(seconds: 2),
 
-    )..repeat(reverse:true);
+    )..repeat(reverse: true);
 
 
 
     logoAnimation = Tween<double>(
 
-      begin:0.95,
+      begin: 0.95,
 
-      end:1.08,
-
+      end: 1.08,
 
     ).animate(
 
       CurvedAnimation(
 
-        parent:logoController,
+        parent: logoController,
 
-        curve:Curves.easeInOut,
+        curve: Curves.easeInOut,
 
       ),
 
@@ -68,70 +67,21 @@ class _SplashScreenState extends State<SplashScreen>
 
 
 
-    // Splash Duration
+    // Splash Duration: 3 Seconds ke baad sidha Login/Registration Portal par redirect karega
+    Timer(
+      const Duration(seconds: 3),
+      () async {
 
-   Timer(
+        // Har user ko pehle Login/Registration screen dikhane ke liye:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const LoginScreen(),
+          ),
+        );
 
-  const Duration(seconds:3),
-
-  () async {
-
-
-    bool loggedIn =
-
-    await AuthService.isLoggedIn();
-
-
-
-    if(loggedIn){
-
-
-
-      Navigator.pushReplacement(
-
-        context,
-
-        MaterialPageRoute(
-
-          builder:(context)=>
-
-          const HomeScreen(),
-
-        ),
-
-      );
-
-
-
-    }
-
-    else{
-
-
-
-      Navigator.pushReplacement(
-
-        context,
-
-        MaterialPageRoute(
-
-          builder:(context)=>
-
-          const LoginScreen(),
-
-        ),
-
-      );
-
-
-    }
-
-
-
-  },
-
-);
-
+      },
+    );
 
   }
 
@@ -140,7 +90,7 @@ class _SplashScreenState extends State<SplashScreen>
 
 
   @override
-  void dispose(){
+  void dispose() {
 
     logoController.dispose();
 
@@ -154,89 +104,58 @@ class _SplashScreenState extends State<SplashScreen>
 
 
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
 
 
     return Scaffold(
 
-      body:
+      body: AnimatedEVBackground(
 
-      AnimatedEVBackground(
+        child: Center(
 
-        child:
+          child: Column(
 
-        Center(
+            mainAxisAlignment: MainAxisAlignment.center,
 
-          child:
-
-          Column(
-
-            mainAxisAlignment:
-            MainAxisAlignment.center,
-
-
-            children:[
+            children: [
 
 
 
               ScaleTransition(
 
-                scale:logoAnimation,
+                scale: logoAnimation,
 
+                child: Container(
 
-                child:
+                  padding: const EdgeInsets.all(10),
 
-                Container(
+                  decoration: BoxDecoration(
 
-                  padding:
-                  const EdgeInsets.all(10),
+                    shape: BoxShape.circle,
 
-
-                  decoration:
-
-                  BoxDecoration(
-
-                    shape:
-
-                    BoxShape.circle,
-
-
-                    boxShadow:[
-
+                    boxShadow: [
 
                       BoxShadow(
 
-                        color:
+                        color: AppColors.primaryGreen.withOpacity(0.35),
 
-                        AppColors.primaryGreen
-                            .withOpacity(0.35),
+                        blurRadius: 50,
 
-
-                        blurRadius:50,
-
-
-                        spreadRadius:12,
-
+                        spreadRadius: 12,
 
                       )
 
                     ],
 
-
                   ),
 
-
-
-                  child:
-
-                  Image.asset(
+                  child: Image.asset(
 
                     "assets/images/logoEnergo.png",
 
-                    height:190,
+                    height: 190,
 
                   ),
-
 
                 ),
 
@@ -246,7 +165,7 @@ class _SplashScreenState extends State<SplashScreen>
 
 
 
-              const SizedBox(height:10),
+              const SizedBox(height: 10),
 
 
 
@@ -256,25 +175,15 @@ class _SplashScreenState extends State<SplashScreen>
 
                 "EnerGo",
 
+                style: TextStyle(
 
-                style:
+                  color: AppColors.primaryGreen,
 
-                TextStyle(
+                  fontSize: 46,
 
-                  color:
+                  fontWeight: FontWeight.bold,
 
-                  AppColors.primaryGreen,
-
-
-                  fontSize:46,
-
-
-                  fontWeight:
-
-                  FontWeight.bold,
-
-
-                  letterSpacing:1.5,
+                  letterSpacing: 1.5,
 
                 ),
 
@@ -284,7 +193,7 @@ class _SplashScreenState extends State<SplashScreen>
 
 
 
-              const SizedBox(height:8),
+              const SizedBox(height: 8),
 
 
 
@@ -294,17 +203,11 @@ class _SplashScreenState extends State<SplashScreen>
 
                 "Smart EV Mobility Platform",
 
+                style: TextStyle(
 
-                style:
+                  color: Colors.white70,
 
-                TextStyle(
-
-                  color:
-
-                  Colors.white70,
-
-
-                  fontSize:16,
+                  fontSize: 16,
 
                 ),
 
@@ -314,7 +217,6 @@ class _SplashScreenState extends State<SplashScreen>
 
             ],
 
-
           ),
 
         ),
@@ -323,8 +225,6 @@ class _SplashScreenState extends State<SplashScreen>
 
     );
 
-
   }
-
 
 }

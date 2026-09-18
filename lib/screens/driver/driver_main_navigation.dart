@@ -1,6 +1,18 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/energo_unified_service.dart';
+import '../ride/ride_completed_screen.dart';
+
+enum ActiveRideStage {
+  idle,
+  searching,
+  driverAssigned,
+  headingToPickup,
+  driverArrived,
+  inTransit,
+  reachedDestination,
+  completed,
+}
 
 class DriverMainNavigation extends StatefulWidget {
   const DriverMainNavigation({super.key});
@@ -10,376 +22,526 @@ class DriverMainNavigation extends StatefulWidget {
 }
 
 class _DriverMainNavigationState extends State<DriverMainNavigation> {
-  int _currentTabIndex = 0;
+  final EnergoUnifiedService _service = EnergoUnifiedService();
+  int _currentTab = 0;
   bool _isOnline = true;
-
-  // 🔔 INCOMING RIDE REQUEST STATE (OLA / UBER STYLE)
-  bool _hasIncomingRequest = true;
-  int _requestCountdown = 15;
   Timer? _countdownTimer;
-  Timer? _speedSimTimer;
+  int _requestCountdown = 15;
 
-  // IN-TRANSIT TELEMETRY
-  int _currentSpeed = 0;
-  int _etaMinutes = 12;
-  double _tripProgress = 0.0;
-  final _pinController = TextEditingController();
+  // 🚗 Active Ride Simulation & Lifecycle State
+  ActiveRideStage _activeRideStage = ActiveRideStage.idle;
+  bool _hasIncomingRide = false;
+  double _activeRideFare = 480.0;
+  String _activeRidePickup = "Terminal 3, VIP Gate 4";
+  String _activeRideDestination = "SuperHub Alpha, Aerocity";
+  String _passengerName = "Anamika Choudhary";
+  String _brokerCompany = "BluSmart Fleet Mobility Ltd.";
 
-  // ⚡ EV TELEMETRY
-  final double _batterySoc = 84.0;
-  final int _rangeKm = 265;
-  final double _batteryHealth = 98.5;
-  final int _tirePsi = 33;
+  // Solo Driver UPI & QR Manager State
+  String _soloUpiId = "rahul.sharma@okaxis";
+  String _soloQrLink = "upi://pay?pa=rahul.sharma@okaxis&pn=Rahul%20Sharma&cu=INR";
+
+  // Shift Checklist State (For Broker Fleet Driver)
+  bool _inspectionPassed = false;
+  double _startOdo = 42150.0;
+  final _odoCtrl = TextEditingController(text: "42150");
 
   @override
   void initState() {
     super.initState();
-    _startCountdown();
-  }
-
-  void _startCountdown() {
-    _requestCountdown = 15;
-    _countdownTimer?.cancel();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
-      if (_requestCountdown > 1) {
-        setState(() => _requestCountdown--);
-      } else {
-        t.cancel();
-        setState(() => _hasIncomingRequest = false);
-      }
-    });
+    _service.addListener(_onServiceUpdate);
   }
 
   @override
   void dispose() {
     _countdownTimer?.cancel();
-    _speedSimTimer?.cancel();
-    _pinController.dispose();
+    _service.removeListener(_onServiceUpdate);
+    _odoCtrl.dispose();
     super.dispose();
   }
 
-  // 1. ACCEPT RIDE ACTION
-  void _acceptIncomingRide() {
-    _countdownTimer?.cancel();
-    setState(() => _hasIncomingRequest = false);
-
-    final service = EnergoUnifiedService();
-    service.updateRideStage(ActiveRideStage.driverAssigned);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("🟢 Ride Accepted! Driving to Passenger Pickup."),
-        backgroundColor: Color(0xFF10B981),
-      ),
-    );
+  void _onServiceUpdate() {
+    if (mounted) setState(() {});
   }
 
-  void _declineRide() {
-    _countdownTimer?.cancel();
-    setState(() => _hasIncomingRequest = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Ride declined. Searching next nearby rider..."), backgroundColor: Colors.white24),
-    );
-  }
-
-  // 2. VERIFY PIN & START IN-TRANSIT
-  void _verifyPinAndStartTrip(EnergoUnifiedService service) {
-    if (_pinController.text == service.ridePin) {
-      service.updateRideStage(ActiveRideStage.inTransit);
-      _startSpeedSimulation();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("🟢 Passenger PIN Verified! Trip in Progress."), backgroundColor: Color(0xFF10B981)),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("❌ Invalid PIN! Ask passenger for 4-digit PIN (e.g. ${service.ridePin})"), backgroundColor: Colors.redAccent),
-      );
+  bool get _isSolo {
+    try {
+      return _service.currentDriverType == DriverType.soloDriver;
+    } catch (_) {
+      return true;
     }
   }
 
-  void _startSpeedSimulation() {
-    _speedSimTimer?.cancel();
-    _speedSimTimer = Timer.periodic(const Duration(seconds: 2), (t) {
+  String get _driverName {
+    try {
+      return _service.driverName.isNotEmpty ? _service.driverName : "Rahul Sharma";
+    } catch (_) {
+      return "Rahul Sharma";
+    }
+  }
+
+  String get _vehiclePlate {
+    try {
+      return _service.vehiclePlate.isNotEmpty ? _service.vehiclePlate : "DL 01 EV 4891";
+    } catch (_) {
+      return "DL 01 EV 4891";
+    }
+  }
+
+  void _startRequestCountdown() {
+    _requestCountdown = 15;
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-      setState(() {
-        _currentSpeed = 36 + (DateTime.now().second % 18);
-        if (_tripProgress < 0.9) {
-          _tripProgress += 0.1;
-          if (_etaMinutes > 2) _etaMinutes--;
-        }
-      });
+      if (_requestCountdown > 1) {
+        setState(() => _requestCountdown--);
+      } else {
+        timer.cancel();
+        _rejectIncomingRide();
+      }
     });
   }
 
-  // 3. COMPLETE RIDE & ROUTE FARE
-  void _completeAndSettleRide(EnergoUnifiedService service, bool isBrokerDriver) {
-    _speedSimTimer?.cancel();
-    _currentSpeed = 0;
-    service.completeRideAndRouteFare();
-    service.updateRideStage(ActiveRideStage.searching);
+  void _triggerSimulatedRideRequest() {
+    setState(() {
+      _hasIncomingRide = true;
+      _activeRideStage = ActiveRideStage.searching;
+    });
+    _startRequestCountdown();
+  }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(isBrokerDriver ? "✅ ₹${service.rideFare} credited to Broker Vault! Shift wage logged." : "✅ ₹${(service.rideFare * 0.9).toStringAsFixed(0)} Net added to Solo Wallet!"),
-        backgroundColor: const Color(0xFF10B981),
-      ),
-    );
+  void _acceptIncomingRide() {
+    _countdownTimer?.cancel();
+    setState(() {
+      _hasIncomingRide = false;
+      _activeRideStage = ActiveRideStage.headingToPickup;
+    });
+  }
+
+  void _rejectIncomingRide() {
+    _countdownTimer?.cancel();
+    setState(() {
+      _hasIncomingRide = false;
+      _activeRideStage = ActiveRideStage.idle;
+    });
+  }
+
+  void _driverArrivedAtPickup() {
+    setState(() {
+      _activeRideStage = ActiveRideStage.driverArrived;
+    });
+  }
+
+  void _verifyOtpAndStartTrip(String pin) {
+    setState(() {
+      _activeRideStage = ActiveRideStage.inTransit;
+    });
+  }
+
+  void _reachDestination() {
+    setState(() {
+      _activeRideStage = ActiveRideStage.reachedDestination;
+    });
+  }
+
+  void _finishRideAndPay() {
+    setState(() {
+      _activeRideStage = ActiveRideStage.completed;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final service = EnergoUnifiedService();
-
-    return ListenableBuilder(
-      listenable: service,
-      builder: (context, _) {
-        final isBrokerDriver = service.currentDriverType == DriverType.brokerFleetDriver;
-
-        return Scaffold(
-          backgroundColor: const Color(0xFF0A0E17),
-          appBar: AppBar(
-            backgroundColor: const Color(0xFF111827),
-            elevation: 0,
-            title: Row(
-              children: [
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: isBrokerDriver ? const Color(0xFF10B981).withOpacity(0.2) : const Color(0xFF00E5FF).withOpacity(0.2),
-                      child: Icon(Icons.person, color: isBrokerDriver ? const Color(0xFF10B981) : const Color(0xFF00E5FF), size: 22),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: _isOnline ? const Color(0xFF10B981) : Colors.redAccent,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF111827), width: 2),
-                        ),
-                      ),
-                    )
-                  ],
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(service.driverName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        const SizedBox(width: 6),
-                        const Icon(Icons.verified, color: Color(0xFF10B981), size: 14),
-                      ],
-                    ),
-                    Text(
-                      isBrokerDriver ? "🏢 ${service.brokerCompanyName} • Fleet EV" : "🚕 Solo Independent • ${service.vehiclePlate}",
-                      style: const TextStyle(color: Colors.white54, fontSize: 10.5),
-                    ),
-                  ],
-                ),
-              ],
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D131F),
+      body: SafeArea(
+        child: IndexedStack(
+          index: _currentTab,
+          children: [
+            _buildCockpitHUD(),
+            _buildEVTelemetryAndHubsTab(),
+            _buildEarningsAndPayoutsTab(),
+            _buildTripsAndInspectionTab(),
+            _buildProfileAndVaultTab(),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF131B2E),
+          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.08))),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 10,
+              offset: const Offset(0, -3),
             ),
-            actions: [
-              Container(
-                margin: const EdgeInsets.only(right: 12, top: 10, bottom: 10),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                decoration: BoxDecoration(
-                  color: _isOnline ? const Color(0xFF10B981).withOpacity(0.15) : Colors.white10,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: _isOnline ? const Color(0xFF10B981) : Colors.white24),
-                ),
-                child: Row(
-                  children: [
-                    Text(_isOnline ? "DUTY ON" : "OFFLINE", style: TextStyle(color: _isOnline ? const Color(0xFF10B981) : Colors.white60, fontSize: 10.5, fontWeight: FontWeight.bold)),
-                    Switch(
-                      value: _isOnline,
-                      activeColor: const Color(0xFF10B981),
-                      activeTrackColor: const Color(0xFF10B981).withOpacity(0.3),
-                      inactiveThumbColor: Colors.white54,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onChanged: (val) => setState(() => _isOnline = val),
-                    ),
-                  ],
-                ),
-              )
-            ],
-          ),
-          body: IndexedStack(
-            index: _currentTabIndex,
-            children: [
-              _buildDutyCockpitTab(service, isBrokerDriver),
-              _buildEvTelemetryAndHubPassTab(),
-              _buildEarningsTab(service, isBrokerDriver),
-              _buildTripsHistoryTab(service),
-              _buildProfileKycTab(service, isBrokerDriver),
-            ],
-          ),
-          bottomNavigationBar: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF111827),
-              border: Border(top: BorderSide(color: Colors.white12)),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _currentTab,
+          onTap: (idx) => setState(() => _currentTab = idx),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: _isSolo ? const Color(0xFF00E5FF) : const Color(0xFF00E676),
+          unselectedItemColor: Colors.white54,
+          selectedFontSize: 11,
+          unselectedFontSize: 10,
+          items: [
+            const BottomNavigationBarItem(icon: Icon(Icons.navigation_rounded), label: "Cockpit HUD"),
+            const BottomNavigationBarItem(icon: Icon(Icons.electric_bolt_rounded), label: "EV & Hubs"),
+            BottomNavigationBarItem(
+              icon: Icon(_isSolo ? Icons.account_balance_wallet_rounded : Icons.payments_rounded),
+              label: _isSolo ? "Payouts" : "Shift Wages",
             ),
-            child: BottomNavigationBar(
-              currentIndex: _currentTabIndex,
-              onTap: (idx) => setState(() => _currentTabIndex = idx),
-              backgroundColor: const Color(0xFF111827),
-              type: BottomNavigationBarType.fixed,
-              selectedItemColor: const Color(0xFF00E5FF),
-              unselectedItemColor: Colors.white54,
-              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10.5),
-              unselectedLabelStyle: const TextStyle(fontSize: 10),
-              items: const [
-                BottomNavigationBarItem(icon: Icon(Icons.navigation), label: "Cockpit"),
-                BottomNavigationBarItem(icon: Icon(Icons.bolt), label: "EV & Hubs"),
-                BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_outlined), label: "Earnings"),
-                BottomNavigationBarItem(icon: Icon(Icons.history), label: "Trips"),
-                BottomNavigationBarItem(icon: Icon(Icons.verified_user_outlined), label: "KYC"),
-              ],
+            BottomNavigationBarItem(
+              icon: Icon(_isSolo ? Icons.history_rounded : Icons.checklist_rounded),
+              label: _isSolo ? "Trips" : "Duty Log",
             ),
-          ),
-        );
-      },
+            const BottomNavigationBarItem(icon: Icon(Icons.shield_rounded), label: "Vault & KYC"),
+          ],
+        ),
+      ),
     );
   }
 
-  // TAB 1: DUTY COCKPIT
-  Widget _buildDutyCockpitTab(EnergoUnifiedService service, bool isBrokerDriver) {
-    final stage = service.rideStage;
-
+  // ==========================================
+  // TAB 1: COCKPIT / RADAR / RIDE LIFECYCLE
+  // ==========================================
+  Widget _buildCockpitHUD() {
     return Stack(
       children: [
+        // 1. Simulated Live Vector Map & Heatmap
         Container(
           width: double.infinity,
           height: double.infinity,
-          decoration: const BoxDecoration(
-            color: Color(0xFF161F30),
-            image: DecorationImage(
-              image: NetworkImage("https://maps.googleapis.com/maps/api/staticmap?center=28.6139,77.2090&zoom=14&size=600x600&maptype=roadmap&style=element:geometry%7Ccolor:0x212121&style=element:labels.text.stroke%7Ccolor:0x212121&style=element:labels.text.fill%7Ccolor:0x757575&key=AIzaSyDp3mkbKShGs1ZHGrQ8By3sDquvoTaymzs"),
-              fit: BoxFit.cover,
-              opacity: 0.65,
-            ),
+          color: const Color(0xFF0A0E17),
+          child: CustomPaint(
+            painter: _RadarMapPainter(),
           ),
         ),
+
+        // 2. Top Driver Header & Online/Offline Switch
         Positioned(
           top: 16,
           left: 16,
           right: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(color: const Color(0xFF0F172A).withOpacity(0.9), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white12)),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.local_fire_department, color: Colors.amber, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      stage == ActiveRideStage.inTransit ? "$_currentSpeed km/h • ETA: $_etaMinutes mins" : "High Demand Area (+₹45 Surge)",
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                  ],
-                ),
-                Text("$_rangeKm km EV Range", style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 12)),
-              ],
-            ),
+          child: Column(
+            children: [
+              _buildTopIdentityCard(),
+              const SizedBox(height: 10),
+              _buildSurgeRadarBanner(),
+            ],
           ),
         ),
+
+        // 3. SOS & Quick Support Floating Buttons
+        Positioned(
+          top: 170,
+          right: 16,
+          child: Column(
+            children: [
+              _buildFloatingTool(
+                icon: Icons.sos_rounded,
+                color: Colors.redAccent,
+                label: "SOS",
+                onTap: _showSOSDialog,
+              ),
+              const SizedBox(height: 10),
+              _buildFloatingTool(
+                icon: Icons.headset_mic_rounded,
+                color: const Color(0xFF00E5FF),
+                label: _isSolo ? "RSA Help" : "Fleet Mgr",
+                onTap: _showSupportDialog,
+              ),
+            ],
+          ),
+        ),
+
+        // 4. Bottom Dynamic Interactive Panels
         Positioned(
           bottom: 16,
           left: 16,
           right: 16,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_hasIncomingRequest && _isOnline && (stage == ActiveRideStage.searching)) ...[
-                _buildIncomingRequestCard(service),
-              ],
-              if (stage == ActiveRideStage.driverAssigned || stage == ActiveRideStage.headingToPickup || stage == ActiveRideStage.driverArrived) ...[
-                _buildPinVerificationCard(service),
-              ],
-              if (stage == ActiveRideStage.inTransit) ...[
-                _buildInTransitHudCard(service),
-              ],
-              if (stage == ActiveRideStage.reachedDestination || stage == ActiveRideStage.completed) ...[
-                _buildPaymentSettlementCard(service, isBrokerDriver),
-              ],
-            ],
-          ),
+          child: _buildBottomInteractivePanel(),
         ),
       ],
     );
   }
 
-  Widget _buildIncomingRequestCard(EnergoUnifiedService service) {
+  Widget _buildTopIdentityCard() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF111827),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
+        color: const Color(0xFF131B2E).withOpacity(0.95),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: _isSolo ? const Color(0xFF00E5FF).withOpacity(0.3) : const Color(0xFF00E676).withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: _isSolo ? const Color(0xFF00E5FF).withOpacity(0.2) : const Color(0xFF00E676).withOpacity(0.2),
+            child: Icon(
+              _isSolo ? Icons.person_rounded : Icons.business_center_rounded,
+              color: _isSolo ? const Color(0xFF00E5FF) : const Color(0xFF00E676),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        _driverName,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _isSolo ? Colors.cyan.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        _isSolo ? "SOLO EV" : "FLEET DRIVER",
+                        style: TextStyle(
+                          color: _isSolo ? const Color(0xFF00E5FF) : const Color(0xFF00E676),
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  _vehiclePlate,
+                  style: const TextStyle(color: Colors.white60, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _isOnline,
+            activeColor: _isSolo ? const Color(0xFF00E5FF) : const Color(0xFF00E676),
+            onChanged: (val) {
+              setState(() => _isOnline = val);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(_isOnline ? "🟢 You are ONLINE for ride requests" : "🔴 You are OFFLINE"),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSurgeRadarBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.amber.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.withOpacity(0.3)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.local_fire_department_rounded, color: Colors.amber, size: 18),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              "High Surge Zone: Aerocity & Cyber Hub (+₹65 to +₹120 surge bonus)",
+              style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingTool({required IconData icon, required Color color, required String label, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131B2E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.5)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 6)],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomInteractivePanel() {
+    // Stage 1: Incoming 15s Ride Request
+    if (_hasIncomingRide && _activeRideStage == ActiveRideStage.searching) {
+      return _buildIncomingRideCard();
+    }
+
+    // Stage 2: Heading to Pickup
+    if (_activeRideStage == ActiveRideStage.driverAssigned || _activeRideStage == ActiveRideStage.headingToPickup) {
+      return _buildHeadingToPickupCard();
+    }
+
+    // Stage 3: Arrived -> PIN Verification
+    if (_activeRideStage == ActiveRideStage.driverArrived) {
+      return _buildArrivedAndOTPVerificationCard();
+    }
+
+    // Stage 4: In Transit Speedometer HUD
+    if (_activeRideStage == ActiveRideStage.inTransit) {
+      return _buildInTransitHUDCard();
+    }
+
+    // Stage 5: Settlement
+    if (_activeRideStage == ActiveRideStage.reachedDestination) {
+      return _buildFareSettlementCard();
+    }
+
+    // Default Idle State
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.radar_rounded, color: Colors.greenAccent, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Searching for Passenger Requests...", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(
+                  _isSolo ? "Solo Driver Mode • 100% Cash/UPI Control" : "Broker Fleet Mode • Automated Corporate Ledger",
+                  style: const TextStyle(color: Colors.white60, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E293B),
+              foregroundColor: const Color(0xFF00E5FF),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onPressed: _triggerSimulatedRideRequest,
+            child: const Text("Simulate", style: TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- RIDE STAGE 1: 15s INCOMING RIDE REQUEST POPUP ---
+  Widget _buildIncomingRideCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFF00E5FF), width: 2),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.25), blurRadius: 24, spreadRadius: 4),
+          BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.2), blurRadius: 20, spreadRadius: 2),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: const Color(0xFF00E5FF).withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.flash_on, color: Color(0xFF00E5FF), size: 14),
-                    const SizedBox(width: 4),
-                    Text("NEW RIDE REQUEST (${_requestCountdown}s)", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.bold)),
+                    const Icon(Icons.timer_rounded, color: Colors.redAccent, size: 16),
+                    const SizedBox(width: 6),
+                    Text("Expires in ${_requestCountdown}s", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
                   ],
                 ),
               ),
-              Text("₹${service.rideFare}", style: const TextStyle(color: Color(0xFF10B981), fontSize: 24, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: _requestCountdown / 15.0,
-            minHeight: 4,
-            backgroundColor: Colors.white10,
-            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
-          ),
-          const SizedBox(height: 12),
-          const Row(
-            children: [
-              CircleAvatar(radius: 16, backgroundColor: Color(0xFF0284C7), child: Icon(Icons.person, color: Colors.white, size: 18)),
-              SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Anamika Choudhary", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                  Text("Rating: 4.9 ★ • Distance: 4.2 km", style: TextStyle(color: Colors.white54, fontSize: 10.5)),
-                ],
+              Text(
+                "₹${_activeRideFare.toStringAsFixed(0)}",
+                style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 22),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(children: [const Icon(Icons.my_location, color: Color(0xFF10B981), size: 14), const SizedBox(width: 8), Expanded(child: Text(service.pickupLocation, maxLines: 1, style: const TextStyle(color: Colors.white, fontSize: 11.5)))]),
-          const SizedBox(height: 4),
-          Row(children: [const Icon(Icons.location_on, color: Colors.redAccent, size: 14), const SizedBox(width: 8), Expanded(child: Text(service.dropLocation, maxLines: 1, style: const TextStyle(color: Colors.white, fontSize: 11.5)))]),
-          const SizedBox(height: 14),
+          const Divider(color: Colors.white10, height: 20),
+          Row(
+            children: [
+              const Icon(Icons.my_location_rounded, color: Colors.greenAccent, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _activeRidePickup,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.location_on_rounded, color: Colors.redAccent, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _activeRideDestination,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white60, side: const BorderSide(color: Colors.white24), padding: const EdgeInsets.symmetric(vertical: 12)),
-                  onPressed: _declineRide,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white60,
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: _rejectIncomingRide,
                   child: const Text("Decline"),
                 ),
               ),
@@ -387,9 +549,13 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> {
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00E676),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
                   onPressed: _acceptIncomingRide,
-                  child: const Text("ACCEPT RIDE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  child: const Text("ACCEPT RIDE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
               ),
             ],
@@ -399,240 +565,305 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> {
     );
   }
 
-  Widget _buildPinVerificationCard(EnergoUnifiedService service) {
+  // --- RIDE STAGE 2: HEADING TO PICKUP ---
+  Widget _buildHeadingToPickupCard() {
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(color: const Color(0xFF111827), borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFF00E5FF))),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.cyan.withOpacity(0.4)),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text("Enter 4-Digit Passenger PIN to Start Trip:", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _pinController,
-            keyboardType: TextInputType.number,
-            maxLength: 4,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
-            decoration: InputDecoration(
-              hintText: "ENTER PIN",
-              hintStyle: const TextStyle(color: Colors.white24, fontSize: 14, letterSpacing: 1),
-              filled: true,
-              fillColor: const Color(0xFF161F30),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            ),
+          Row(
+            children: [
+              const CircleAvatar(
+                backgroundColor: Color(0xFF00E5FF),
+                radius: 18,
+                child: Icon(Icons.person, color: Colors.black),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Passenger: $_passengerName", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    const Text("Pickup: Terminal 3 VIP Gate", style: TextStyle(color: Colors.white60, fontSize: 11)),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.call, color: Colors.greenAccent),
+                onPressed: () {},
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white),
-              onPressed: () => _verifyPinAndStartTrip(service),
-              child: const Text("Verify PIN & Start Trip", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E5FF),
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 48),
             ),
+            onPressed: _driverArrivedAtPickup,
+            child: const Text("I HAVE ARRIVED AT PICKUP", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInTransitHudCard(EnergoUnifiedService service) {
+  // --- RIDE STAGE 3: OTP / PIN VERIFICATION ---
+  Widget _buildArrivedAndOTPVerificationCard() {
+    final pinCtrl = TextEditingController(text: "7842");
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(color: const Color(0xFF111827), borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFF10B981))),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.amberAccent.withOpacity(0.5)),
+      ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.pin_rounded, color: Colors.amberAccent),
+              SizedBox(width: 10),
+              Text("Enter 4-Digit Passenger Start PIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: pinCtrl,
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.amberAccent, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 10),
+            decoration: InputDecoration(
+              counterText: "",
+              filled: true,
+              fillColor: const Color(0xFF0D131F),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amberAccent,
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 48),
+            ),
+            onPressed: () {
+              if (pinCtrl.text.trim() == "7842" || pinCtrl.text.isNotEmpty) {
+                _verifyOtpAndStartTrip(pinCtrl.text.trim());
+              }
+            },
+            child: const Text("VERIFY PIN & START TRIP", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- RIDE STAGE 4: IN TRANSIT SPEEDOMETER HUD ---
+  Widget _buildInTransitHUDCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.greenAccent.withOpacity(0.4)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.navigation, color: Color(0xFF10B981), size: 28),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text("Turn Right in 200m", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      Text("Outer Ring Road • Destination: ${service.dropLocation}", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
-                    ],
-                  ),
+                  Text("IN TRANSIT TO DESTINATION", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                  Text("SuperHub Hub-Alpha Dropoff", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                 ],
               ),
-              Text("$_currentSpeed km/h", style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 18)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                ),
+                child: const Text("54 km/h", style: TextStyle(color: Color(0xFF00E5FF), fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-              onPressed: () => service.updateRideStage(ActiveRideStage.reachedDestination),
-              child: const Text("End Trip at Destination", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 48),
             ),
+            onPressed: _reachDestination,
+            child: const Text("COMPLETE TRIP / REACH DESTINATION", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPaymentSettlementCard(EnergoUnifiedService service, bool isBrokerDriver) {
+  // --- RIDE STAGE 5: SETTLEMENT & QR DISPATCH ---
+  Widget _buildFareSettlementCard() {
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(color: const Color(0xFF111827), borderRadius: BorderRadius.circular(20), border: Border.all(color: isBrokerDriver ? const Color(0xFF00E5FF) : const Color(0xFF10B981))),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _isSolo ? const Color(0xFF00E5FF) : const Color(0xFF00E676)),
+      ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (isBrokerDriver) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-              child: const Text("⚠️ STRICTLY NO CASH • BROKER FLEET POLICY", style: TextStyle(color: Colors.redAccent, fontSize: 10.5, fontWeight: FontWeight.bold)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(_isSolo ? "Collect Solo Driver Fare" : "Broker Vault Settlement", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text("₹${_activeRideFare.toStringAsFixed(0)}", style: const TextStyle(color: Color(0xFF00E676), fontSize: 22, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _isSolo ? Colors.cyan.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _isSolo ? Colors.cyan : Colors.redAccent),
             ),
-            const SizedBox(height: 12),
-            const Icon(Icons.qr_code_2, size: 100, color: Colors.white),
-            Text("Broker Corporate QR: ${service.brokerCorporateUpi}", style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, fontSize: 12)),
-            const SizedBox(height: 4),
-            const Text("100% Fare settles to Broker Vault. Driver earns shift wage.", style: TextStyle(color: Colors.white54, fontSize: 10)),
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-              child: const Text("🟢 CASH OR PERSONAL UPI ACCEPTED", style: TextStyle(color: Color(0xFF10B981), fontSize: 10.5, fontWeight: FontWeight.bold)),
+            child: Row(
+              children: [
+                Icon(_isSolo ? Icons.qr_code_2_rounded : Icons.money_off_rounded, color: _isSolo ? Colors.cyanAccent : Colors.redAccent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _isSolo
+                        ? "Personal UPI: $_soloUpiId (or Accept Direct Cash)"
+                        : "STRICTLY NO CASH: 100% fare auto-routed to $_brokerCompany Corporate Vault.",
+                    style: TextStyle(color: _isSolo ? Colors.cyanAccent : Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            const Icon(Icons.qr_code, size: 100, color: Colors.white),
-            Text("Solo UPI: ${service.soloPersonalUpi}", style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 12)),
-          ],
+          ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white),
-              onPressed: () => _completeAndSettleRide(service, isBrokerDriver),
-              child: const Text("Confirm Payment & Close Trip", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E676),
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 48),
             ),
+            onPressed: () {
+              _finishRideAndPay();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (ctx) => RideCompletedScreen(
+                    fare: _activeRideFare,
+                    pickup: _activeRidePickup,
+                    drop: _activeRideDestination,
+                    driverName: _driverName,
+                    vehicleNumber: _vehiclePlate,
+                  ),
+                ),
+              );
+            },
+            child: const Text("CONFIRM PAYMENT RECEIVED & CLOSE", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
+  // ==========================================
   // TAB 2: EV TELEMETRY & 4 SUPERHUB PASSES
-  Widget _buildEvTelemetryAndHubPassTab() {
+  // ==========================================
+  Widget _buildEVTelemetryAndHubsTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: const Color(0xFF161F30), borderRadius: BorderRadius.circular(18), border: Border.all(color: Colors.white10)),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("${_batterySoc.toInt()}% SoC", style: const TextStyle(color: Color(0xFF10B981), fontSize: 28, fontWeight: FontWeight.bold)),
-                    Text("$_rangeKm km Range", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 24, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: _batterySoc / 100, minHeight: 8, backgroundColor: Colors.white10, valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981))),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("Health: $_batteryHealth% SOH", style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                    Text("Tires: $_tirePsi PSI (All 4 OK)", style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text("SuperHub Amenities (1-Tap Driver Access)", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          const Text("⚡ Tesla-Grade EV Battery & Health Telemetry", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          _buildHubPassItem("Fast DC Port Reservation", "CCS2 180kW Express Port at Central SuperHub", Icons.bolt, const Color(0xFF00E5FF)),
-          _buildHubPassItem("IoT Parking Bay Express Pass", "Ultrasonic Barrier Auto-Lowering on Plate Detect", Icons.local_parking, const Color(0xFF10B981)),
-          _buildHubPassItem("Snooze Pod Rest Booking", "30-min Sanitized AC Power Nap Pod", Icons.bed, const Color(0xFFEC4899)),
-          _buildHubPassItem("5G Lounge & Meal Pass", "Free High-Speed WiFi & Subsidized Driver Meal", Icons.coffee, const Color(0xFFFFD54F)),
+          _buildEVGaugeOverview(),
+          const SizedBox(height: 20),
+          const Text("📍 4 SuperHub 1-Tap Driver Amenities Passes", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _buildHubPassCard(
+            title: "180kW DC Fast Charging Reserve",
+            subtitle: "CCS2 Gun #3 reserved at SuperHub Delta",
+            icon: Icons.electric_car_rounded,
+            color: const Color(0xFF00E5FF),
+            badge: "FREE DRIVER PASS",
+          ),
+          const SizedBox(height: 10),
+          _buildHubPassCard(
+            title: "IoT Parking Barrier 1-Tap Raise",
+            subtitle: "Bay #B4 Ultrasonic Auto-Pass",
+            icon: Icons.local_parking_rounded,
+            color: const Color(0xFF00E676),
+            badge: "AUTHORIZED",
+          ),
+          const SizedBox(height: 10),
+          _buildHubPassCard(
+            title: "Driver Snooze Pod & Rest Cabin",
+            subtitle: "Pod #8 Available (20 min power nap)",
+            icon: Icons.bed_rounded,
+            color: Colors.purpleAccent,
+            badge: "RESERVE NOW",
+          ),
+          const SizedBox(height: 10),
+          _buildHubPassCard(
+            title: "5G Lounge & Beverage Coupon",
+            subtitle: "Complimentary Hot Tea / Coffee + EV WiFi",
+            icon: Icons.coffee_rounded,
+            color: Colors.amberAccent,
+            badge: "CLAIM 100% OFF",
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildHubPassItem(String title, String sub, IconData icon, Color col) {
+  Widget _buildEVGaugeOverview() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: const Color(0xFF161F30), borderRadius: BorderRadius.circular(14), border: Border.all(color: col.withOpacity(0.3))),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: col.withOpacity(0.15), shape: BoxShape.circle), child: Icon(icon, color: col, size: 20)),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5)),
-                  Text(sub, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-                ],
-              ),
-            ],
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: col, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("✅ $title Unlocked at Nearest Hub!"), backgroundColor: col));
-            },
-            child: const Text("1-Tap Pass", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10.5)),
-          ),
-        ],
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white10),
       ),
-    );
-  }
-
-  // TAB 3: EARNINGS
-  Widget _buildEarningsTab(EnergoUnifiedService service, bool isBrokerDriver) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: const Color(0xFF161F30), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white10)),
-            child: Column(
-              children: [
-                Text(isBrokerDriver ? "Shift Wage Accrued" : "Today's Solo Wallet", style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                const SizedBox(height: 6),
-                Text(
-                  isBrokerDriver ? "₹${service.brokerDriverAccruedSalary.toStringAsFixed(2)}" : "₹${service.soloDriverWallet.toStringAsFixed(2)}",
-                  style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 32, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), foregroundColor: Colors.white),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(isBrokerDriver ? "🏢 Salary auto-credited on 1st & 15th." : "✅ Razorpay Instant Transfer initiated!"), backgroundColor: const Color(0xFF0284C7)),
-                    );
-                  },
-                  child: Text(isBrokerDriver ? "View Salary Ledger" : "Instant Bank Payout"),
-                ),
-              ],
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildGaugeStat("84%", "State of Charge", Colors.greenAccent, Icons.battery_charging_full_rounded),
+              _buildGaugeStat("265 km", "Range Remaining", const Color(0xFF00E5FF), Icons.speed_rounded),
+              _buildGaugeStat("98.5%", "Battery SOH", Colors.amberAccent, Icons.health_and_safety_rounded),
+            ],
           ),
-          const SizedBox(height: 16),
+          const Divider(color: Colors.white10, height: 24),
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _StatMini(title: "Completed Trips", val: "8"),
-              _StatMini(title: "Online Hours", val: "5.4 hrs"),
-              _StatMini(title: "Acceptance Rate", val: "96%"),
+              Text("FL Tyre: 33 PSI", style: TextStyle(color: Colors.white70, fontSize: 11)),
+              Text("FR Tyre: 33 PSI", style: TextStyle(color: Colors.white70, fontSize: 11)),
+              Text("RL Tyre: 34 PSI", style: TextStyle(color: Colors.white70, fontSize: 11)),
+              Text("RR Tyre: 34 PSI", style: TextStyle(color: Colors.white70, fontSize: 11)),
             ],
           ),
         ],
@@ -640,97 +871,409 @@ class _DriverMainNavigationState extends State<DriverMainNavigation> {
     );
   }
 
-  // TAB 4: TRIPS HISTORY
-  Widget _buildTripsHistoryTab(EnergoUnifiedService service) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+  Widget _buildGaugeStat(String value, String label, Color color, IconData icon) {
+    return Column(
       children: [
-        _buildHistoryItem("TRIP-9842", "Anamika Choudhary (4.9★)", "₹480.00", "Saket -> Central SuperHub"),
-        _buildHistoryItem("TRIP-9841", "Rohit Verma (4.8★)", "₹320.00", "Cyber Hub -> TechPark MegaHub"),
-        _buildHistoryItem("TRIP-9840", "Kavita Rao (5.0★)", "₹290.00", "Connaught Place -> Airport T3"),
+        Icon(icon, color: color, size: 26),
+        const SizedBox(height: 6),
+        Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
       ],
     );
   }
 
-  Widget _buildHistoryItem(String id, String rider, String fare, String route) {
+  Widget _buildHubPassCard({required String title, required String subtitle, required IconData icon, required Color color, required String badge}) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: const Color(0xFF161F30), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white10)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(id, style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, fontSize: 12)),
-              Text(fare, style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 15)),
-            ],
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(height: 6),
-          Text(rider, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-          Text(route, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(subtitle, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+            child: Text(badge, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
     );
   }
 
-  // TAB 5: KYC & PROFILE
-  Widget _buildProfileKycTab(EnergoUnifiedService service, bool isBrokerDriver) {
+  // ==========================================
+  // TAB 3: EARNINGS & RAZORPAY / SHIFT WAGES
+  // ==========================================
+  Widget _buildEarningsAndPayoutsTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 36,
-            backgroundColor: const Color(0xFF00E5FF).withOpacity(0.2),
-            child: const Icon(Icons.person, color: Color(0xFF00E5FF), size: 40),
+          Text(
+            _isSolo ? "💰 Solo Driver Earnings & Instant Bank Payout" : "🏢 Shift Wage & Corporate Ledger",
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 10),
-          Text(service.driverName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-          Text(isBrokerDriver ? "🏢 ${service.brokerCompanyName}" : "🚕 Independent Solo Driver", style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.15), borderRadius: BorderRadius.circular(14), border: Border.all(color: const Color(0xFF10B981))),
-            child: const Row(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: _isSolo
+                    ? [const Color(0xFF00838F), const Color(0xFF004D40)]
+                    : [const Color(0xFF1B5E20), const Color(0xFF0D5302)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.verified, color: Color(0xFF10B981), size: 24),
-                SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Text(_isSolo ? "TODAY'S NET EARNINGS" : "TODAY'S SHIFT WAGE (GUARANTEED)", style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                const SizedBox(height: 6),
+                Text(
+                  _isSolo ? "₹2,840.00" : "₹850.00 + ₹245 (Per-Ride Incentive)",
+                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("KYC VERIFIED & APPROVED ✅", style: TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text("Commercial DL, RC & Police Clearance Verified", style: TextStyle(color: Colors.white70, fontSize: 10.5)),
+                    Text(_isSolo ? "Completed Trips: 8" : "Shift: 08:00 AM - 04:00 PM", style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                    Text(_isSolo ? "Platform Fee (10%): -₹284" : "Fleet: $_brokerCompany", style: const TextStyle(color: Colors.white70, fontSize: 11)),
                   ],
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          if (_isSolo) ...[
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E5FF),
+                foregroundColor: Colors.black,
+                minimumSize: const Size(double.infinity, 50),
+              ),
+              icon: const Icon(Icons.bolt_rounded),
+              label: const Text("1-TAP INSTANT RAZORPAY PAYOUT (₹2,556)", style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("✅ Instant Payout of ₹2,556 processed via Razorpay to HDFC A/c ****4891"),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.lock_rounded, color: Colors.greenAccent),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "Corporate Vault Sync Active: Shift earnings auto-transferred by Fleet Broker at 06:00 PM daily.",
+                      style: TextStyle(color: Colors.greenAccent, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB 4: TRIPS & DUTY INSPECTION CHECKLIST
+  // ==========================================
+  Widget _buildTripsAndInspectionTab() {
+    if (!_isSolo) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("📋 Pre-Shift 360° Vehicle Damage & Odo Inspection", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: const Color(0xFF131B2E), borderRadius: BorderRadius.circular(18)),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _odoCtrl,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: "Starting Odometer Reading (KM)",
+                      labelStyle: TextStyle(color: Colors.white60),
+                      prefixIcon: Icon(Icons.speed_rounded, color: Color(0xFF00E676)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    title: const Text("Front & Rear Bumper Free of Dents", style: TextStyle(color: Colors.white, fontSize: 12)),
+                    value: _inspectionPassed,
+                    activeColor: const Color(0xFF00E676),
+                    onChanged: (v) => setState(() => _inspectionPassed = v ?? false),
+                  ),
+                  CheckboxListTile(
+                    title: const Text("Tyres Pressure & Spare Wheel Checked (33 PSI)", style: TextStyle(color: Colors.white, fontSize: 12)),
+                    value: _inspectionPassed,
+                    activeColor: const Color(0xFF00E676),
+                    onChanged: (v) => setState(() => _inspectionPassed = v ?? false),
+                  ),
+                  CheckboxListTile(
+                    title: const Text("AC Cooling & Sanitized Seat Covers", style: TextStyle(color: Colors.white, fontSize: 12)),
+                    value: _inspectionPassed,
+                    activeColor: const Color(0xFF00E676),
+                    onChanged: (v) => setState(() => _inspectionPassed = v ?? false),
+                  ),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00E676),
+                      foregroundColor: Colors.black,
+                      minimumSize: const Size(double.infinity, 46),
+                    ),
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("✅ Pre-Duty Vehicle Inspection Saved & Synced to Fleet ERP"), backgroundColor: Colors.green),
+                      );
+                    },
+                    child: const Text("SUBMIT PRE-DUTY REPORT", style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text("📜 Recent Trip Ledger", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        _buildTripTile("SuperHub Alpha ➔ Aerocity T3", "₹420", "Completed • Paid via Personal UPI", Colors.greenAccent),
+        _buildTripTile("Cyber City ➔ Sector 29 Hub", "₹310", "Completed • Paid in Cash", Colors.amberAccent),
+        _buildTripTile("Dwarka Expressway ➔ IGI Terminal 1", "₹580", "Completed • Razorpay Online", Colors.cyanAccent),
+      ],
+    );
+  }
+
+  Widget _buildTripTile(String route, String fare, String status, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: const Color(0xFF131B2E), borderRadius: BorderRadius.circular(14)),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(route, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(status, style: TextStyle(color: color, fontSize: 11)),
+              ],
+            ),
+          ),
+          Text(fare, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB 5: VAULT, UPI MANAGER & KYC
+  // ==========================================
+  Widget _buildProfileAndVaultTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("🛡️ Driver Vault, UPI & Document Center", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+
+          // Solo Driver Personal UPI & QR Manager
+          if (_isSolo) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF131B2E),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Personal UPI & QR Code Settings", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+                      Icon(Icons.qr_code_2_rounded, color: Color(0xFF00E5FF)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text("Current Settlement UPI ID: $_soloUpiId", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E293B),
+                      foregroundColor: const Color(0xFF00E5FF),
+                    ),
+                    onPressed: _showEditSoloUpiDialog,
+                    child: const Text("Edit UPI ID / Upload QR Code"),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+
+          _buildDocItem("Commercial Driving License", "DL-04201994812", "VERIFIED", Colors.greenAccent),
+          _buildDocItem("EV RC Smart Card", _vehiclePlate, "VERIFIED", Colors.greenAccent),
+          _buildDocItem("Commercial EV Insurance Policy", "Bajaj Allianz EV-4891", "VALID TILL 2027", Colors.cyanAccent),
+          _buildDocItem("Police Background Verification", "Delhi Police Verified", "VERIFIED", Colors.greenAccent),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDocItem(String title, String num, String status, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: const Color(0xFF131B2E), borderRadius: BorderRadius.circular(14)),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+              Text(num, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+            child: Text(status, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditSoloUpiDialog() {
+    final ctrl = TextEditingController(text: _soloUpiId);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF131B2E),
+        title: const Text("Edit Personal UPI ID", style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: ctrl,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(labelText: "Enter UPI ID (e.g. name@okhdfcbank)", labelStyle: TextStyle(color: Colors.white60)),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
+            onPressed: () {
+              setState(() => _soloUpiId = ctrl.text.trim());
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ Personal UPI ID updated successfully!"), backgroundColor: Colors.green));
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSOSDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1F1212),
+        title: const Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.redAccent), SizedBox(width: 8), Text("EMERGENCY SOS", style: TextStyle(color: Colors.redAccent))]),
+        content: const Text("Instant Police dispatch & EnerGo Nexus Highway EV Assistance will be notified with your live GPS location.", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white), onPressed: () => Navigator.pop(ctx), child: const Text("CALL 112 & RSA")),
+        ],
+      ),
+    );
+  }
+
+  void _showSupportDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF131B2E),
+        title: Text(_isSolo ? "Roadside EV Assistance" : "Fleet Control Room Hotline", style: const TextStyle(color: Colors.white)),
+        content: Text(_isSolo ? "Call 24x7 EnerGo EV Highway Assistance: 1800-419-EV-HELP" : "Direct line to $_brokerCompany Dispatcher: +91 98110 00192", style: const TextStyle(color: Colors.white70)),
+        actions: [
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black), onPressed: () => Navigator.pop(ctx), child: const Text("Call Now")),
         ],
       ),
     );
   }
 }
 
-class _StatMini extends StatelessWidget {
-  final String title;
-  final String val;
+// Custom Radar Painter for Live Map Grid
+class _RadarMapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF1A263F)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
 
-  const _StatMini({required this.title, required this.val});
+    // Grid lines
+    for (double i = 0; i < size.width; i += 40) {
+      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
+    }
+    for (double j = 0; j < size.height; j += 40) {
+      canvas.drawLine(Offset(0, j), Offset(size.width, j), paint);
+    }
+
+    // Hotspot surge circle
+    final surgePaint = Paint()
+      ..color = Colors.amber.withOpacity(0.12)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(size.width * 0.65, size.height * 0.35), 80, surgePaint);
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: const Color(0xFF161F30), borderRadius: BorderRadius.circular(14)),
-      child: Column(
-        children: [
-          Text(val, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 2),
-          Text(title, style: const TextStyle(color: Colors.white38, fontSize: 10)),
-        ],
-      ),
-    );
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
